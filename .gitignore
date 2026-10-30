@@ -1,0 +1,17 @@
+# Generado por el entrenamiento (se regenera con un comando)
+artifacts/*
+!artifacts/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.ipynb_checkpoints/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Local
+.env

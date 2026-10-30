@@ -1,0 +1,14 @@
+# Fuente unica de verdad del experimento.
+# Se cambia un valor aqui, se reentrena, y la API sirve el nuevo modelo.
+
+seed: 42
+
+data:
+  raw_path: data/raw/restaurantes.csv
+  test_size: 0.20      # prueba estratificada, nunca se usa para ajustar nada
+
+tfidf:
+  max_features: 5000   # tamano maximo del vocabulario
+  min_df: 2            # ignora palabras que aparecen en menos de 2 resenas
+  max_df: 0.90         # ignora palabras que aparecen en mas del 90 % de resenas
+  sublinear_tf: true   # 1 + log(tf): las palabras repetidas no dominan
