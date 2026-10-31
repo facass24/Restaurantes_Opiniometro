@@ -26,8 +26,11 @@ class Normalizador:
         # 1. Convertir a minúsculas
         texto_limpio = texto.lower().strip()
 
-        # 2. Reducir repeticiones exageradas de caracteres (ej. 'riquísimoooo' -> 'riquísimo')
-        texto_limpio = re.sub(r"(.)\1{2,}", r"\1\1", texto_limpio)
+        # 2. Reducir letras repetidas 3 o más veces a una sola
+        # ('riquísimoooo' -> 'riquísimo'). Las dobles se conservan porque son
+        # válidas en español ('llama', 'carro', 'leer'). Solo se aplica a letras
+        # para no alterar números ('1000' no debe quedar como '10').
+        texto_limpio = re.sub(r"([a-zñáéíóúü])\1{2,}", r"\1", texto_limpio)
 
         # 3. Quitar tildes si fue configurado (conservando la ñ)
         # Se reemplazan solo las vocales acentuadas. No se usa unicodedata
