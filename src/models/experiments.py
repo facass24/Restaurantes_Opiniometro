@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.dummy import DummyClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import f1_score, make_scorer
+from sklearn.metrics import f1_score, make_scorer, precision_score, recall_score
 from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
@@ -83,3 +83,29 @@ def textos_preprocesados(textos: pd.Series, metodo: str) -> pd.Series:
     CARPETA_CACHE.mkdir(parents=True, exist_ok=True)
     joblib.dump(salida, ruta)
     return pd.Series(salida, index=textos.index)
+
+def evaluar_modelo(nombre: str, X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -> dict:
+    """Validación cruzada de TF-IDF + modelo sobre textos ya preprocesados (solo train)."""
+    pipeline = Pipeline([
+        ("tfidf", crear_vectorizador(ngram_range)),
+        ("model", crear_modelo(nombre)),
+    ])
+    resultado = cross_validate(
+        pipeline,
+        X,
+        y,
+        cv=crear_cv(),
+        scoring={
+            "f1_macro": "f1_macro",
+            "accuracy": "accuracy",
+            "precision_negativo": make_scorer(precision_score, pos_label="negativo", zero_division=0),
+            "recall_negativo": make_scorer(recall_score, pos_label="negativo", zero_division=0),
+        },
+    )
+    return {
+        "f1_macro": float(resultado["test_f1_macro"].mean()),
+        "f1_macro_std": float(resultado["test_f1_macro"].std()),
+        "accuracy": float(resultado["test_accuracy"].mean()),
+        "precision_negativo": float(resultado["test_precision_negativo"].mean()),
+        "recall_negativo": float(resultado["test_recall_negativo"].mean()),
+    }
