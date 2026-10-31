@@ -1,7 +1,8 @@
 """Módulo de normalización de texto para reseñas en español."""
 
 import re
-import unicodedata
+# Vocales acentuadas -> vocales simples (la ñ no se incluye a propósito)
+TABLA_TILDES = str.maketrans("áéíóúü", "aeiouu")
 
 
 class Normalizador:
@@ -28,13 +29,11 @@ class Normalizador:
         # 2. Reducir repeticiones exageradas de caracteres (ej. 'riquísimoooo' -> 'riquísimo')
         texto_limpio = re.sub(r"(.)\1{2,}", r"\1\1", texto_limpio)
 
-        # 3. Quitar tildes si fue configurado
+        # 3. Quitar tildes si fue configurado (conservando la ñ)
+        # Se reemplazan solo las vocales acentuadas. No se usa unicodedata
+        # porque convierte "ñ" en "n" y cambia palabras ("año" -> "ano").
         if self.quitar_tildes:
-            texto_limpio = "".join(
-                c
-                for c in unicodedata.normalize("NFD", texto_limpio)
-                if unicodedata.category(c) != "Mn"
-            )
+            texto_limpio = texto_limpio.translate(TABLA_TILDES)
 
         # 4. Quitar números si fue configurado
         if self.quitar_numeros:
