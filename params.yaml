@@ -12,3 +12,6 @@ tfidf:
   min_df: 2            # ignora palabras que aparecen en menos de 2 resenas
   max_df: 0.90         # ignora palabras que aparecen en mas del 90 % de resenas
   sublinear_tf: true   # 1 + log(tf): las palabras repetidas no dominan
+
+experiments:
+  cv_folds: 5          # pliegues de la validacion cruzada estratificada
