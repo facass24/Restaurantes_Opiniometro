@@ -188,3 +188,16 @@ def buscar_naive_bayes(X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -> pd.Dat
         )
         filas.append({**combo, **metricas})
     return pd.DataFrame(filas).sort_values("f1_macro", ascending=False).reset_index(drop=True)
+
+def evaluar_candidatos(X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -> pd.DataFrame:
+    """Evalua los mejores hiperparametros de 3.3 (params.yaml) para Regresion Logistica y Naive Bayes."""
+    mejores = PARAMS["experiments"]["mejores"]
+    opciones_nb = dict(mejores["naive_bayes"])
+    ratio = opciones_nb.pop("undersample_ratio")
+    filas = [
+        {"modelo": "LR", **evaluar_modelo(
+            "logistic_regression", X, y, ngram_range, **mejores["logistic_regression"])},
+        {"modelo": "NB + submuestreo", **evaluar_modelo_submuestreo(
+            "naive_bayes", X, y, ratio=ratio, ngram_range=ngram_range, **opciones_nb)},
+    ]
+    return pd.DataFrame(filas)
