@@ -4,6 +4,11 @@ import re
 # Vocales acentuadas -> vocales simples (la ñ no se incluye a propósito)
 TABLA_TILDES = str.maketrans("áéíóúü", "aeiouu")
 
+# URLs: no aportan sentimiento (solo 22 reseñas del dataset las tienen)
+PATRON_URL = re.compile(r"https?://\S+|www\.\S+")
+
+# Emojis: el dataset no contiene ninguno, así que el modelo no los conoce
+PATRON_EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\U0001F1E6-\U0001F1FF\uFE0F]")
 
 class Normalizador:
     """Normaliza texto eliminando ruido, tildes y caracteres innecesarios."""
@@ -25,7 +30,10 @@ class Normalizador:
 
         # 1. Convertir a minúsculas
         texto_limpio = texto.lower().strip()
-
+        # 1.1 Quitar URLs y emojis (antes de reducir repeticiones, para que
+        # 'www' no se convierta en 'w' y la URL siga siendo reconocible)
+        texto_limpio = PATRON_URL.sub(" ", texto_limpio)
+        texto_limpio = PATRON_EMOJI.sub(" ", texto_limpio)
         # 2. Reducir letras repetidas 3 o más veces a una sola
         # ('riquísimoooo' -> 'riquísimo'). Las dobles se conservan porque son
         # válidas en español ('llama', 'carro', 'leer'). Solo se aplica a letras
