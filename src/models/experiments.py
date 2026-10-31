@@ -1,11 +1,16 @@
-"""Linea base, validacion cruzada y experimentos de modelado."""
+"""Linea base, validacion cruzada, modelos y pipeline."""
 
 import pandas as pd
 from sklearn.dummy import DummyClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, make_scorer
 from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
 
 from src.config import PARAMS
+from src.nlp.pipeline import PreprocesadorTexto
 
 
 def crear_cv() -> StratifiedKFold:
@@ -34,3 +39,31 @@ def evaluar_linea_base(train: pd.DataFrame) -> dict:
         "accuracy": float(resultado["test_accuracy"].mean()),
         "f1_macro": float(resultado["test_f1_macro"].mean()),
     }
+
+
+def crear_modelo(nombre: str):
+    """Devuelve el clasificador final del pipeline."""
+    if nombre == "naive_bayes":
+        return MultinomialNB()
+    if nombre == "logistic_regression":
+        return LogisticRegression(max_iter=1000, random_state=PARAMS["seed"])
+    raise ValueError(f"Modelo desconocido: {nombre}")
+
+
+def crear_vectorizador(ngram_range=(1, 1)) -> TfidfVectorizer:
+    """TF-IDF con los parametros de params.yaml (vocabulario, min_df, max_df, sublinear)."""
+    return TfidfVectorizer(
+        token_pattern=r"\S+",   # el preprocesador ya separo los tokens por espacios
+        lowercase=False,         # ya esta en minusculas: no repetir trabajo
+        ngram_range=tuple(ngram_range),
+        **PARAMS["tfidf"],
+    )
+
+
+def construir_pipeline(modelo: str, metodo_reduccion: str = "stem", ngram_range=(1, 1)) -> Pipeline:
+    """Pipeline completo: texto crudo entra, etiqueta y probabilidad salen."""
+    return Pipeline([
+        ("preprocess", PreprocesadorTexto(metodo_reduccion=metodo_reduccion)),
+        ("tfidf", crear_vectorizador(ngram_range)),
+        ("model", crear_modelo(modelo)),
+    ])
