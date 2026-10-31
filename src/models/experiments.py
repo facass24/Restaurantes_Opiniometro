@@ -9,9 +9,11 @@ from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 
-from src.config import PARAMS
+from src.config import BASE_DIR, PARAMS
 from src.nlp.pipeline import PreprocesadorTexto
 
+import hashlib
+import joblib
 
 def crear_cv() -> StratifiedKFold:
     """Validacion cruzada estratificada, con semilla y pliegues desde params.yaml."""
@@ -67,3 +69,17 @@ def construir_pipeline(modelo: str, metodo_reduccion: str = "stem", ngram_range=
         ("tfidf", crear_vectorizador(ngram_range)),
         ("model", crear_modelo(modelo)),
     ])
+
+
+CARPETA_CACHE = BASE_DIR / "artifacts" / "cache"
+
+def textos_preprocesados(textos: pd.Series, metodo: str) -> pd.Series:
+    """Preprocesa una sola vez y guarda el resultado en artifacts/cache/."""
+    huella = hashlib.md5("\n".join(textos).encode("utf-8")).hexdigest()[:10]
+    ruta = CARPETA_CACHE / f"{metodo}_{huella}.joblib"
+    if ruta.exists():
+        return pd.Series(joblib.load(ruta), index=textos.index)
+    salida = PreprocesadorTexto(metodo_reduccion=metodo).transform(textos)
+    CARPETA_CACHE.mkdir(parents=True, exist_ok=True)
+    joblib.dump(salida, ruta)
+    return pd.Series(salida, index=textos.index)
