@@ -34,6 +34,10 @@ class Normalizador:
         # 'www' no se convierta en 'w' y la URL siga siendo reconocible)
         texto_limpio = PATRON_URL.sub(" ", texto_limpio)
         texto_limpio = PATRON_EMOJI.sub(" ", texto_limpio)
+
+        # Puntuación (incluye ¡ ¿ y _). Se conservan dos casos del dominio:
+        # "/" entre números (calificación "10/10") y "$" antes de un número (precio "$150")
+        PATRON_PUNTUACION = re.compile(r"(?!(?<=\d)/(?=\d))(?!\$(?=\d))(?:[^\w\s]|_)")
         # 2. Reducir letras repetidas 3 o más veces a una sola
         # ('riquísimoooo' -> 'riquísimo'). Las dobles se conservan porque son
         # válidas en español ('llama', 'carro', 'leer'). Solo se aplica a letras
@@ -49,6 +53,9 @@ class Normalizador:
         # 4. Quitar números si fue configurado
         if self.quitar_numeros:
             texto_limpio = re.sub(r"\d+", "", texto_limpio)
+        # 4.1 Quitar puntuación (después de quitar números, para que con
+        # quitar_numeros=True no queden "/" o "$" sueltos)
+        texto_limpio = PATRON_PUNTUACION.sub(" ", texto_limpio)
 
         # 5. Normalizar espacios en blanco consecutivos
         texto_limpio = re.sub(r"\s+", " ", texto_limpio).strip()
