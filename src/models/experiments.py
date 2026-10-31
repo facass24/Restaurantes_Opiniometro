@@ -1,10 +1,14 @@
-"""Linea base, validacion cruzada, modelos y pipeline."""
+"""Linea base, validacion cruzada, modelos, pipeline y cache de textos."""
 
+import hashlib
+
+import joblib
+import numpy as np
 import pandas as pd
 from sklearn.dummy import DummyClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import f1_score, make_scorer, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, make_scorer, precision_score, recall_score
 from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
@@ -12,8 +16,6 @@ from sklearn.pipeline import Pipeline
 from src.config import BASE_DIR, PARAMS
 from src.nlp.pipeline import PreprocesadorTexto
 
-import hashlib
-import joblib
 
 def crear_cv() -> StratifiedKFold:
     """Validacion cruzada estratificada, con semilla y pliegues desde params.yaml."""
@@ -43,12 +45,12 @@ def evaluar_linea_base(train: pd.DataFrame) -> dict:
     }
 
 
-def crear_modelo(nombre: str):
-    """Devuelve el clasificador final del pipeline."""
+def crear_modelo(nombre: str, **parametros):
+    """Devuelve el clasificador final del pipeline (parametros: opciones del modelo)."""
     if nombre == "naive_bayes":
-        return MultinomialNB()
+        return MultinomialNB(**parametros)
     if nombre == "logistic_regression":
-        return LogisticRegression(max_iter=1000, random_state=PARAMS["seed"])
+        return LogisticRegression(max_iter=1000, random_state=PARAMS["seed"], **parametros)
     raise ValueError(f"Modelo desconocido: {nombre}")
 
 
@@ -73,6 +75,7 @@ def construir_pipeline(modelo: str, metodo_reduccion: str = "stem", ngram_range=
 
 CARPETA_CACHE = BASE_DIR / "artifacts" / "cache"
 
+
 def textos_preprocesados(textos: pd.Series, metodo: str) -> pd.Series:
     """Preprocesa una sola vez y guarda el resultado en artifacts/cache/."""
     huella = hashlib.md5("\n".join(textos).encode("utf-8")).hexdigest()[:10]
@@ -84,11 +87,12 @@ def textos_preprocesados(textos: pd.Series, metodo: str) -> pd.Series:
     joblib.dump(salida, ruta)
     return pd.Series(salida, index=textos.index)
 
-def evaluar_modelo(nombre: str, X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -> dict:
+
+def evaluar_modelo(nombre: str, X: pd.Series, y: pd.Series, ngram_range=(1, 1), **parametros) -> dict:
     """Validación cruzada de TF-IDF + modelo sobre textos ya preprocesados (solo train)."""
     pipeline = Pipeline([
         ("tfidf", crear_vectorizador(ngram_range)),
-        ("model", crear_modelo(nombre)),
+        ("model", crear_modelo(nombre, **parametros)),
     ])
     resultado = cross_validate(
         pipeline,
@@ -108,4 +112,48 @@ def evaluar_modelo(nombre: str, X: pd.Series, y: pd.Series, ngram_range=(1, 1)) 
         "accuracy": float(resultado["test_accuracy"].mean()),
         "precision_negativo": float(resultado["test_precision_negativo"].mean()),
         "recall_negativo": float(resultado["test_recall_negativo"].mean()),
+    }
+
+
+def _metricas(y_real, y_pred) -> dict:
+    """Metricas de un pliegue: F1 macro, accuracy y precision/recall de la clase negativa."""
+    return {
+        "f1_macro": f1_score(y_real, y_pred, average="macro"),
+        "accuracy": accuracy_score(y_real, y_pred),
+        "precision_negativo": precision_score(y_real, y_pred, pos_label="negativo", zero_division=0),
+        "recall_negativo": recall_score(y_real, y_pred, pos_label="negativo", zero_division=0),
+    }
+
+
+def submuestrear(X: pd.Series, y: pd.Series, ratio: int, semilla: int):
+    """Deja todas las negativas y, como máximo, `ratio` veces esa cantidad de positivas."""
+    rng = np.random.default_rng(semilla)
+    negativos = np.flatnonzero((y == "negativo").to_numpy())
+    positivos = np.flatnonzero((y == "positivo").to_numpy())
+    positivos = rng.choice(positivos, size=min(len(positivos), ratio * len(negativos)), replace=False)
+    posiciones = np.sort(np.concatenate([negativos, positivos]))
+    return X.iloc[posiciones], y.iloc[posiciones]
+
+
+def evaluar_modelo_submuestreo(nombre: str, X: pd.Series, y: pd.Series, ratio=None, ngram_range=(1, 1), **parametros) -> dict:
+    """Validacion cruzada con submuestreo SOLO en la parte de entrenamiento de cada pliegue.
+
+    La parte de validacion conserva la proporcion real (94/6), asi las metricas son honestas.
+    """
+    ratio = ratio or PARAMS["experiments"]["undersample_ratio"]
+    filas = []
+    for entrenamiento, validacion in crear_cv().split(X, y):
+        X_ent, y_ent = submuestrear(X.iloc[entrenamiento], y.iloc[entrenamiento], ratio, PARAMS["seed"])
+        pipeline = Pipeline([
+            ("tfidf", crear_vectorizador(ngram_range)),
+            ("model", crear_modelo(nombre, **parametros)),
+        ]).fit(X_ent, y_ent)
+        filas.append(_metricas(y.iloc[validacion], pipeline.predict(X.iloc[validacion])))
+    tabla = pd.DataFrame(filas)
+    return {
+        "f1_macro": float(tabla["f1_macro"].mean()),
+        "f1_macro_std": float(tabla["f1_macro"].std(ddof=0)),
+        "accuracy": float(tabla["accuracy"].mean()),
+        "precision_negativo": float(tabla["precision_negativo"].mean()),
+        "recall_negativo": float(tabla["recall_negativo"].mean()),
     }

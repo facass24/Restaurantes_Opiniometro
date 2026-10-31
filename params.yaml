@@ -15,3 +15,4 @@ tfidf:
 
 experiments:
   cv_folds: 5          # pliegues de la validacion cruzada estratificada
+  undersample_ratio: 2 # submuestreo: positivas = 2 x negativas (solo en entrenamiento)
