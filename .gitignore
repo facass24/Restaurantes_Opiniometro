@@ -15,3 +15,5 @@ frontend/dist/
 
 # Local
 .env
+# Dataset crudo: se descarga con data/descargar_datos.py
+data/raw/*.csv
