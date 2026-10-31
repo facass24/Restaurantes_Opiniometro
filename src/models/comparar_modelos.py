@@ -6,7 +6,22 @@ Uso (desde la raíz del repo):  python -m src.models.comparar_modelos
 import pandas as pd
 
 from src.models.data import cargar_datos, dividir
-from src.models.experiments import evaluar_linea_base, evaluar_modelo, textos_preprocesados
+from src.models.experiments import (
+    evaluar_linea_base,
+    evaluar_modelo,
+    evaluar_modelo_submuestreo,
+    textos_preprocesados,
+)
+
+# (etiqueta, modelo, opciones del modelo, ¿con submuestreo?)
+EXPERIMENTOS = [
+    ("NB sin tratar", "naive_bayes", {}, False),
+    ("NB prior uniforme (fit_prior=False)", "naive_bayes", {"fit_prior": False}, False),
+    ("NB + submuestreo", "naive_bayes", {}, True),
+    ("LR sin tratar", "logistic_regression", {}, False),
+    ("LR class_weight=balanced", "logistic_regression", {"class_weight": "balanced"}, False),
+    ("LR + submuestreo", "logistic_regression", {}, True),
+]
 
 
 def main() -> None:
@@ -15,13 +30,13 @@ def main() -> None:
     X = textos_preprocesados(train["texto"], "stem")
     y = train["sentimiento"]
 
-    base = evaluar_linea_base(train)
-    filas = [{"modelo": "línea base (siempre positivo)", **base}]
-    for nombre in ("naive_bayes", "logistic_regression"):
-        filas.append({"modelo": nombre, **evaluar_modelo(nombre, X, y)})
+    filas = [{"experimento": "línea base (siempre positivo)", **evaluar_linea_base(train)}]
+    for etiqueta, modelo, opciones, submuestreo in EXPERIMENTOS:
+        evaluar = evaluar_modelo_submuestreo if submuestreo else evaluar_modelo
+        filas.append({"experimento": etiqueta, **evaluar(modelo, X, y, **opciones)})
 
     tabla = pd.DataFrame(filas)
-    print("\nValidación cruzada sobre train (stemming, unigramas, sin tratar el desbalance)\n")
+    print("\nValidación cruzada sobre train (stemming, unigramas)\n")
     print(tabla.round(4).to_string(index=False))
 
 
