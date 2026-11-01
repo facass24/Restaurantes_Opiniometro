@@ -74,12 +74,25 @@ def construir_pipeline(modelo: str, metodo_reduccion: str = "stem", ngram_range=
 
 
 CARPETA_CACHE = BASE_DIR / "artifacts" / "cache"
+CARPETA_NLP = BASE_DIR / "src" / "nlp"
+
+
+def huella_nlp() -> str:
+    """Huella del codigo de src/nlp/: si A cambia el preprocesamiento, la huella cambia
+    y la cache vieja deja de usarse (si no, se seguirian sirviendo textos desactualizados)."""
+    contenido = b"".join(
+        archivo.read_bytes().replace(b"\r\n", b"\n") for archivo in sorted(CARPETA_NLP.glob("*.py"))
+    )
+    return hashlib.md5(contenido).hexdigest()[:8]
 
 
 def textos_preprocesados(textos: pd.Series, metodo: str) -> pd.Series:
-    """Preprocesa una sola vez y guarda el resultado en artifacts/cache/."""
-    huella = hashlib.md5("\n".join(textos).encode("utf-8")).hexdigest()[:10]
-    ruta = CARPETA_CACHE / f"{metodo}_{huella}.joblib"
+    """Preprocesa una sola vez y guarda el resultado en artifacts/cache/.
+
+    La clave de la cache combina: el metodo (stem/lema), el codigo de src/nlp/ y los textos.
+    """
+    huella_textos = hashlib.md5("\n".join(textos).encode("utf-8")).hexdigest()[:10]
+    ruta = CARPETA_CACHE / f"{metodo}_{huella_nlp()}_{huella_textos}.joblib"
     if ruta.exists():
         return pd.Series(joblib.load(ruta), index=textos.index)
     salida = PreprocesadorTexto(metodo_reduccion=metodo).transform(textos)
