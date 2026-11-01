@@ -15,3 +15,34 @@ tfidf:
 
 experiments:
   cv_folds: 5          # pliegues de la validacion cruzada estratificada
+  undersample_ratio: 2 # submuestreo: positivas = 2 x negativas (solo en entrenamiento)
+  grid:                # rejillas de la busqueda de hiperparametros (paso 3.3)
+    logistic_regression:
+      C: [1, 5, 10, 20, 50, 100]       # inverso de la regularizacion
+      class_weight: [null, balanced]
+    naive_bayes:
+      alpha: [0.5, 1.0, 2.0, 3.0, 5.0] # suavizado de Laplace
+      undersample_ratio: [2, 3, 4]     # positivas = ratio x negativas
+
+  grid_bigramas:       # rejilla reducida para reajustar con bigramas (paso 3.6)
+    logistic_regression:
+      C: [5, 10, 20, 50]
+      class_weight: [null]
+    naive_bayes:
+      alpha: [1.0, 2.0, 3.0]
+      undersample_ratio: [2, 3, 4]
+
+
+  mejores:             # mejores hiperparametros del paso 3.3 (stemming, unigramas)
+    logistic_regression:
+      C: 10
+    naive_bayes:
+      alpha: 2.0
+      undersample_ratio: 2
+
+modelo_final:          # decision del paso 3.6; la usara train.py (Fase 5)
+  modelo: logistic_regression
+  reduccion: stem
+  ngram_range: [1, 2]
+  opciones:
+    C: 10
