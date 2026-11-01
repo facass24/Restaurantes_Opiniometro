@@ -1,8 +1,8 @@
 """Busqueda de hiperparametros con validacion cruzada (solo sobre train).
 
 Uso (desde la raiz del repo):
-    python -m src.models.buscar_hiperparametros                                      # unigramas (paso 3.3)
-    python -m src.models.buscar_hiperparametros --ngramas 1 2 --grid grid_bigramas   # con bigramas (paso 3.6)
+    python -m src.models.buscar_hiperparametros                                      # unigramas 
+    python -m src.models.buscar_hiperparametros --ngramas 1 2 --grid grid_bigramas   # con bigramas 
 """
 
 import argparse
