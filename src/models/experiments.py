@@ -158,13 +158,13 @@ def evaluar_modelo_submuestreo(nombre: str, X: pd.Series, y: pd.Series, ratio=No
         "recall_negativo": float(tabla["recall_negativo"].mean()),
     }
 
-def buscar_regresion_logistica(X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -> pd.DataFrame:
+def buscar_regresion_logistica(X: pd.Series, y: pd.Series, ngram_range=(1, 1), clave_grid="grid") -> pd.DataFrame:
     """GridSearchCV de la Regresion Logistica (rejilla en params.yaml), ordenado por F1 macro."""
     pipeline = Pipeline([
         ("tfidf", crear_vectorizador(ngram_range)),
         ("model", crear_modelo("logistic_regression")),
     ])
-    rejilla = {f"model__{k}": v for k, v in PARAMS["experiments"]["grid"]["logistic_regression"].items()}
+    rejilla = {f"model__{k}": v for k, v in PARAMS["experiments"][clave_grid]["logistic_regression"].items()}
     busqueda = GridSearchCV(pipeline, rejilla, scoring="f1_macro", cv=crear_cv(), refit=False)
     busqueda.fit(X, y)
     resultados = pd.DataFrame(busqueda.cv_results_["params"]).rename(columns=lambda c: c.replace("model__", ""))
@@ -174,13 +174,13 @@ def buscar_regresion_logistica(X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -
     return resultados.sort_values("f1_macro", ascending=False).reset_index(drop=True)
 
 
-def buscar_naive_bayes(X: pd.Series, y: pd.Series, ngram_range=(1, 1)) -> pd.DataFrame:
+def buscar_naive_bayes(X: pd.Series, y: pd.Series, ngram_range=(1, 1), clave_grid="grid") -> pd.DataFrame:
     """Busqueda en rejilla de Naive Bayes con submuestreo dentro de cada pliegue.
 
     GridSearchCV no puede submuestrear solo el entrenamiento de cada pliegue sin otra
     libreria, asi que se recorre la rejilla a mano con los mismos pliegues (crear_cv).
     """
-    rejilla = PARAMS["experiments"]["grid"]["naive_bayes"]
+    rejilla = PARAMS["experiments"][clave_grid]["naive_bayes"]
     filas = []
     for combo in ParameterGrid({"alpha": rejilla["alpha"], "ratio": rejilla["undersample_ratio"]}):
         metricas = evaluar_modelo_submuestreo(

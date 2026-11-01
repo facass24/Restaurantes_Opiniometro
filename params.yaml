@@ -24,7 +24,15 @@ experiments:
       alpha: [0.5, 1.0, 2.0, 3.0, 5.0] # suavizado de Laplace
       undersample_ratio: [2, 3, 4]     # positivas = ratio x negativas
 
-  
+  grid_bigramas:       # rejilla reducida para reajustar con bigramas (paso 3.6)
+    logistic_regression:
+      C: [5, 10, 20, 50]
+      class_weight: [null]
+    naive_bayes:
+      alpha: [1.0, 2.0, 3.0]
+      undersample_ratio: [2, 3, 4]
+
+      
   mejores:             # mejores hiperparametros del paso 3.3 (stemming, unigramas)
     logistic_regression:
       C: 10
