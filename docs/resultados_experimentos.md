@@ -93,3 +93,19 @@ Comando: `python -m src.models.buscar_hiperparametros --ngramas 1 2 --grid grid_
 Limitaciones: la diferencia con Naive Bayes es moderada (~0,009, unas dos veces la
 variación entre pliegues); el F1 macro de la validación cruzada es una estimación que se
 verificará una sola vez con el conjunto de prueba en la Fase 4.
+
+## 8. Evaluación final en el conjunto de prueba
+
+Se evaluó una sola vez (16.143 reseñas, 969 negativas), con el modelo de la sección 7
+(Regresión Logística, stemming, unigramas + bigramas, C = 10).
+
+  | Clase | precisión | recall | F1 |
+  |---|---|---|---|
+  | negativo | 0,9187 | 0,8163 | 0,8645 |
+  | positivo | 0,9884 | 0,9954 | 0,9919 |
+
+Accuracy 0,9846 y F1 macro 0,9282, consistente con el 0,926 de la validación cruzada.
+Matriz de confusión: 791 negativas y 15.104 positivas bien clasificadas; 178 negativas
+pasaron por positivas y 70 positivas por negativas.
+
+Comando: `python -m src.models.evaluate`
