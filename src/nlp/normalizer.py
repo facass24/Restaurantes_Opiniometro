@@ -1,8 +1,14 @@
 """Módulo de normalización de texto para reseñas en español."""
 
 import re
-import unicodedata
+# Vocales acentuadas -> vocales simples (la ñ no se incluye a propósito)
+TABLA_TILDES = str.maketrans("áéíóúü", "aeiouu")
 
+# URLs: no aportan sentimiento (solo 22 reseñas del dataset las tienen)
+PATRON_URL = re.compile(r"https?://\S+|www\.\S+")
+
+# Emojis: el dataset no contiene ninguno, así que el modelo no los conoce
+PATRON_EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\U0001F1E6-\U0001F1FF\uFE0F]")
 
 class Normalizador:
     """Normaliza texto eliminando ruido, tildes y caracteres innecesarios."""
@@ -24,21 +30,32 @@ class Normalizador:
 
         # 1. Convertir a minúsculas
         texto_limpio = texto.lower().strip()
+        # 1.1 Quitar URLs y emojis (antes de reducir repeticiones, para que
+        # 'www' no se convierta en 'w' y la URL siga siendo reconocible)
+        texto_limpio = PATRON_URL.sub(" ", texto_limpio)
+        texto_limpio = PATRON_EMOJI.sub(" ", texto_limpio)
 
-        # 2. Reducir repeticiones exageradas de caracteres (ej. 'riquísimoooo' -> 'riquísimo')
-        texto_limpio = re.sub(r"(.)\1{2,}", r"\1\1", texto_limpio)
+        # Puntuación (incluye ¡ ¿ y _). Se conservan dos casos del dominio:
+        # "/" entre números (calificación "10/10") y "$" antes de un número (precio "$150")
+        PATRON_PUNTUACION = re.compile(r"(?!(?<=\d)/(?=\d))(?!\$(?=\d))(?:[^\w\s]|_)")
+        # 2. Reducir letras repetidas 3 o más veces a una sola
+        # ('riquísimoooo' -> 'riquísimo'). Las dobles se conservan porque son
+        # válidas en español ('llama', 'carro', 'leer'). Solo se aplica a letras
+        # para no alterar números ('1000' no debe quedar como '10').
+        texto_limpio = re.sub(r"([a-zñáéíóúü])\1{2,}", r"\1", texto_limpio)
 
-        # 3. Quitar tildes si fue configurado
+        # 3. Quitar tildes si fue configurado (conservando la ñ)
+        # Se reemplazan solo las vocales acentuadas. No se usa unicodedata
+        # porque convierte "ñ" en "n" y cambia palabras ("año" -> "ano").
         if self.quitar_tildes:
-            texto_limpio = "".join(
-                c
-                for c in unicodedata.normalize("NFD", texto_limpio)
-                if unicodedata.category(c) != "Mn"
-            )
+            texto_limpio = texto_limpio.translate(TABLA_TILDES)
 
         # 4. Quitar números si fue configurado
         if self.quitar_numeros:
             texto_limpio = re.sub(r"\d+", "", texto_limpio)
+        # 4.1 Quitar puntuación (después de quitar números, para que con
+        # quitar_numeros=True no queden "/" o "$" sueltos)
+        texto_limpio = PATRON_PUNTUACION.sub(" ", texto_limpio)
 
         # 5. Normalizar espacios en blanco consecutivos
         texto_limpio = re.sub(r"\s+", " ", texto_limpio).strip()
