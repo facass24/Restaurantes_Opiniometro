@@ -15,6 +15,7 @@ from sklearn.pipeline import Pipeline
 
 from src.config import BASE_DIR, PARAMS
 from src.nlp.pipeline import PreprocesadorTexto
+from src.nlp.stopwords import FiltroStopWords
 
 
 def crear_cv() -> StratifiedKFold:
@@ -78,12 +79,16 @@ CARPETA_NLP = BASE_DIR / "src" / "nlp"
 
 
 def huella_nlp() -> str:
-    """Huella del codigo de src/nlp/: si A cambia el preprocesamiento, la huella cambia
-    y la cache vieja deja de usarse (si no, se seguirian sirviendo textos desactualizados)."""
+    """Huella del preprocesamiento: codigo de src/nlp/ + lista de stop words realmente cargada.
+
+    Si A cambia el codigo, o si cambia la lista de NLTK (por ejemplo, al instalar el corpus
+    'stopwords' que antes faltaba), la huella cambia y la cache vieja deja de usarse.
+    """
     contenido = b"".join(
         archivo.read_bytes().replace(b"\r\n", b"\n") for archivo in sorted(CARPETA_NLP.glob("*.py"))
     )
-    return hashlib.md5(contenido).hexdigest()[:8]
+    stop_words = ",".join(sorted(FiltroStopWords().stop_words)).encode("utf-8")
+    return hashlib.md5(contenido + stop_words).hexdigest()[:8]
 
 
 def textos_preprocesados(textos: pd.Series, metodo: str) -> pd.Series:
