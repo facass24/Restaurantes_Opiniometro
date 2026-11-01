@@ -1,20 +1,25 @@
-"""Módulo de tokenización para reseñas en español."""
+"""Módulo de tokenización para reseñas de restaurantes en español."""
 
 import re
 from typing import List
 
+# Orden de búsqueda: primero los casos del dominio, luego palabras normales.
+#   \d+/\d+            -> calificaciones como "10/10" (un solo token)
+#   \$\d+(?:[.,]\d+)?  -> precios como "$150" o "$99.50"
+#   \w+                -> palabras y números (incluye ñ y vocales con tilde)
+PATRON_TOKEN = re.compile(r"\d+/\d+|\$\d+(?:[.,]\d+)?|\w+")
+
+# Todos los precios se agrupan en un solo token: el monto exacto no aporta
+# sentimiento, pero mencionar el precio sí (suele ir con "caro" o "barato").
+TOKEN_PRECIO = "$precio"
+
 
 class Tokenizador:
-    """Divide un texto normalizado en unidades léxicas (tokens)."""
-
-    def __init__(self, preservar_emojis: bool = True):
-        self.preservar_emojis = preservar_emojis
-        # Expresión regular que captura palabras, contracciones y opcionalmente emojis
-        self._regex_palabras = re.compile(r"\b[a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9_]+\b")
+    """Divide un texto normalizado en tokens, tratando casos del dominio."""
 
     def tokenizar(self, texto: str) -> List[str]:
-        """Extrae tokens alfanuméricos ignorando signos de puntuación sueltos."""
+        """Separa el texto en tokens, conservando calificaciones y agrupando precios."""
         if not texto:
             return []
-        return self._regex_palabras.findall(texto)
-
+        tokens = PATRON_TOKEN.findall(texto)
+        return [TOKEN_PRECIO if token.startswith("$") else token for token in tokens]
