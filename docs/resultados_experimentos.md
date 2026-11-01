@@ -109,3 +109,28 @@ Matriz de confusión: 791 negativas y 15.104 positivas bien clasificadas; 178 ne
 pasaron por positivas y 70 positivas por negativas.
 
 Comando: `python -m src.models.evaluate`
+
+## 9. Comparación de modelos en el conjunto de prueba
+
+Los tres modelos se evaluaron una sola vez sobre las mismas 16.143 reseñas de prueba
+(969 negativas, 15.174 positivas). Estos números **no se usaron para elegir el modelo**:
+la decisión de la sección 7 se tomó con validación cruzada, antes de mirar la prueba.
+
+| Modelo | accuracy | F1 macro | precision_neg | recall_neg |
+|---|---|---|---|---|
+| Línea base (siempre positivo) | 0,9400 | 0,4845 | 0,0000 | 0,0000 |
+| Naive Bayes + submuestreo | 0,9785 | 0,9074 | 0,8025 | 0,8514 |
+| Regresión Logística (modelo final) | 0,9846 | 0,9282 | 0,9187 | 0,8163 |
+
+- **Contra la línea base:** con accuracy 0,94 no detecta ninguna reseña negativa (F1 macro 0,4845).
+  Los dos modelos aportan valor real.
+- **Regresión Logística contra Naive Bayes:** la Regresión Logística gana en F1 macro por
+  0,021 y tiene mucha mejor precisión sobre las negativas (0,92 contra 0,80): cuando
+  marca una reseña como negativa, casi siempre acierta.
+- **Qué cede:** Naive Bayes tiene algo más de recall sobre las negativas (0,85 contra 0,82,
+  unas 34 reseñas de 969). Es decir, deja pasar menos negativas, a costa de marcar muchas
+  positivas como negativas.
+- **Consistencia con la validación cruzada:** la dirección es la misma (0,926 contra 0,916
+  en validación cruzada); la brecha es algo mayor en la prueba (0,021 contra 0,010).
+
+Comando: `python -m src.models.comparar_prueba`
