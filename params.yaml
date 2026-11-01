@@ -32,10 +32,17 @@ experiments:
       alpha: [1.0, 2.0, 3.0]
       undersample_ratio: [2, 3, 4]
 
-      
+
   mejores:             # mejores hiperparametros del paso 3.3 (stemming, unigramas)
     logistic_regression:
       C: 10
     naive_bayes:
       alpha: 2.0
       undersample_ratio: 2
+
+modelo_final:          # decision del paso 3.6; la usara train.py (Fase 5)
+  modelo: logistic_regression
+  reduccion: stem
+  ngram_range: [1, 2]
+  opciones:
+    C: 10
