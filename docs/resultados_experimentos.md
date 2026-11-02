@@ -8,6 +8,19 @@ Las columnas `precision_neg` y `recall_neg` se refieren a la clase "negativo".
 Preprocesamiento base: stemming, TF-IDF con los parámetros de `params.yaml`
 (`max_features`, `min_df`, `max_df`, `sublinear_tf`).
 
+> **Nota de reproducibilidad.** Las secciones 1 a 5 se calcularon con la lista de respaldo de
+> stop words, antes de instalar el corpus de NLTK. Se repitió la búsqueda de la sección 6 con
+> el corpus de NLTK: Regresión Logística C = 20 → 0,9262 y C = 10 → 0,9260; Naive Bayes + submuestreo →
+> 0,9160. La decisión de la sección 7 no cambia.
+
+## Resumen de modelos
+
+| Modelo | F1 macro (validación cruzada) | F1 macro (prueba) | accuracy (prueba) | precision_neg | recall_neg |
+|---|---|---|---|---|---|
+| Línea base (siempre "positivo") | 0,4845 | 0,4845 | 0,9400 | 0,0000 | 0,0000 |
+| Naive Bayes + submuestreo (bigramas) | 0,916 | 0,9074 | 0,9785 | 0,8025 | 0,8514 |
+| **Regresión Logística (bigramas, C = 10)** | **0,926** | **0,9282** | **0,9846** | **0,9187** | **0,8163** |
+
 ## 1. Línea base y modelos sin tratar (unigramas)
 
 | Experimento | accuracy | F1 macro | precision_neg | recall_neg |
@@ -82,15 +95,15 @@ Comando: `python -m src.models.buscar_hiperparametros --ngramas 1 2 --grid grid_
 **Modelo elegido: Regresión Logística** con stemming, unigramas + bigramas y **C = 10**
 (registrado en `params.yaml`, bloque `modelo_final`).
 
-- F1 macro de validación cruzada ≈ 0,926, contra ≈ 0,917 de Naive Bayes + submuestreo.
-- C = 10 y C = 20 empatan dentro del ruido (diferencia de 0,0004); se elige el más simple
+- F1 macro de validación cruzada ≈ 0,926, contra ≈ 0,916 de Naive Bayes + submuestreo.
+- C = 10 y C = 20 empatan dentro del ruido (diferencia de 0,0002); se elige el más simple
   (mayor regularización).
 - Mayor precisión sobre las reseñas negativas (0,91 contra 0,84).
 - Sus probabilidades reflejan la proporción real de las clases, porque entrena con todos
   los datos; con submuestreo quedarían desplazadas hacia "negativo".
 - Sus coeficientes permiten interpretar el aporte de cada palabra.
 
-Limitaciones: la diferencia con Naive Bayes es moderada (~0,009, unas dos veces la
+Limitaciones: la diferencia con Naive Bayes es moderada (~0,010, unas dos veces la
 variación entre pliegues); el F1 macro de la validación cruzada es una estimación que se
 verificará una sola vez con el conjunto de prueba en la Fase 4.
 
@@ -99,10 +112,10 @@ verificará una sola vez con el conjunto de prueba en la Fase 4.
 Se evaluó una sola vez (16.143 reseñas, 969 negativas), con el modelo de la sección 7
 (Regresión Logística, stemming, unigramas + bigramas, C = 10).
 
-  | Clase | precisión | recall | F1 |
-  |---|---|---|---|
-  | negativo | 0,9187 | 0,8163 | 0,8645 |
-  | positivo | 0,9884 | 0,9954 | 0,9919 |
+| Clase | precisión | recall | F1 |
+|---|---|---|---|
+| negativo | 0,9187 | 0,8163 | 0,8645 |
+| positivo | 0,9884 | 0,9954 | 0,9919 |
 
 Accuracy 0,9846 y F1 macro 0,9282, consistente con el 0,926 de la validación cruzada.
 Matriz de confusión: 791 negativas y 15.104 positivas bien clasificadas; 178 negativas
