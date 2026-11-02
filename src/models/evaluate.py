@@ -70,6 +70,21 @@ def mostrar(metricas: dict) -> None:
     print(f"{'real positivo':<18}{pn:>16,}{pp:>16,}")
 
 
+def evaluar_y_guardar(final, train: pd.DataFrame, test: pd.DataFrame) -> dict:
+    """Evalúa el modelo final en la prueba, muestra las métricas y guarda el resultado."""
+    metricas = evaluar_en_prueba(final, test)
+    mostrar(metricas)
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    RUTA_RESULTADO.write_text(json.dumps({
+        "modelo_final": dict(PARAMS["modelo_final"]),
+        "n_entrenamiento": len(train),
+        "n_prueba": len(test),
+        "metricas": metricas,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\nGuardado en {RUTA_RESULTADO}")
+    return metricas
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evalúa el modelo final en el conjunto de prueba.")
     parser.add_argument("--repetir", action="store_true",
@@ -84,22 +99,9 @@ def main() -> None:
         print("\nSi cambiaste el modelo o el preprocesamiento, usa --repetir.")
         return
 
-    df = cargar_datos()
-    train, test = dividir(df)
+    train, test = dividir(cargar_datos())
     print(f"Entrenamiento: {len(train):,} | prueba: {len(test):,} | {test['sentimiento'].value_counts().to_dict()}")
-    final = entrenar_modelo_final(train)
-
-    metricas = evaluar_en_prueba(final, test)
-    mostrar(metricas)
-
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    RUTA_RESULTADO.write_text(json.dumps({
-        "modelo_final": dict(PARAMS["modelo_final"]),
-        "n_entrenamiento": len(train),
-        "n_prueba": len(test),
-        "metricas": metricas,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nGuardado en {RUTA_RESULTADO}")
+    evaluar_y_guardar(entrenar_modelo_final(train), train, test)
 
 
 if __name__ == "__main__":
