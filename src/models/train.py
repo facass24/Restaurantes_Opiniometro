@@ -1,21 +1,26 @@
-"""Entrenamiento del modelo final.
+"""Entrenamiento reproducible: de los datos crudos a los modelos guardados, con un solo comando.
 
-Entrena, con TODO el conjunto de entrenamiento, la configuracion elegida en
-la Fase 3 (bloque `modelo_final` de params.yaml) y devuelve el Pipeline completo.
-Fase 5 extiende este archivo para que todo corra con un solo comando.
-
-El conjunto de prueba NO se toca aqui: se usa una sola vez en evaluate.py (4.2).
-
-Uso (desde la raiz del proyecto):
     python -m src.models.train
+
+Pasos (cada uno se salta solo si ya está hecho):
+  1. Datos: descarga Rest-Mex y genera data/raw/restaurantes.csv si faltan.
+  2. Entrena la configuración de `modelo_final` (params.yaml) con TODO el entrenamiento.
+  3. Guarda el Pipeline completo (preprocesamiento + TF-IDF + modelo) en artifacts/model.joblib.
+  4. Evalúa en la prueba, compara con la línea base y Naive Bayes, y exporta artifacts/metrics.json.
+
+El paso 4 respeta la regla de usar la prueba una sola vez: si ya hay resultados y la
+configuración no cambió, los reutiliza; si cambió, se niega, salvo con --repetir-evaluacion.
 """
 
+import argparse
+import json
 import time
 
+import joblib
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from src.config import PARAMS
+from src.config import ARTIFACTS_DIR, BASE_DIR, MODEL_PATH, PARAMS
 from src.models.data import cargar_datos, dividir
 from src.models.experiments import crear_modelo, crear_vectorizador, textos_preprocesados
 from src.nlp.pipeline import PreprocesadorTexto
@@ -74,9 +79,70 @@ def verificar_consistencia(final: Pipeline, nucleo: Pipeline, train: pd.DataFram
         raise AssertionError("El Pipeline guardado no reproduce lo entrenado")
 
 
+def comprobar_recursos() -> None:
+    """Falla pronto y con instrucciones si falta el corpus de stop words de NLTK.
+
+    Sin él, el filtro usa en silencio una lista de respaldo y los resultados dejan de ser
+    reproducibles entre computadoras.
+    """
+    import nltk
+    try:
+        nltk.data.find("corpora/stopwords")
+    except LookupError:
+        raise SystemExit("Falta el corpus de stop words de NLTK. Instálalo con:\n"
+                         "  python -m nltk.downloader stopwords")
+
+
+def asegurar_datos() -> None:
+    """Deja listo data/raw/restaurantes.csv (descarga y prepara solo lo que falte)."""
+    from data.descargar_datos import descargar
+    from src.data.preparar_datos import RUTA_CRUDA, preparar_datos
+
+    if (BASE_DIR / PARAMS["data"]["raw_path"]).exists():
+        return
+    if not RUTA_CRUDA.exists():
+        descargar()
+    preparar_datos()
+
+
+def guardar_modelo(final: Pipeline) -> None:
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(final, MODEL_PATH)
+    print(f"Pipeline guardado en {MODEL_PATH} ({MODEL_PATH.stat().st_size / 1e6:.1f} MB)")
+
+
+def evaluar_y_exportar(final: Pipeline, train: pd.DataFrame, test: pd.DataFrame, repetir: bool) -> None:
+    """Paso 4: métricas en la prueba (una sola vez) y metrics.json para la API."""
+    from src.models import exportar_metricas
+    from src.models.comparar_prueba import RUTA_COMPARATIVA, comparar_y_guardar
+    from src.models.evaluate import RUTA_RESULTADO, evaluar_y_guardar
+
+    if RUTA_RESULTADO.exists() and not repetir:
+        guardado = json.loads(RUTA_RESULTADO.read_text(encoding="utf-8"))["modelo_final"]
+        if guardado != dict(PARAMS["modelo_final"]):
+            raise SystemExit(
+                "La configuración de modelo_final cambió desde la última evaluación en la prueba.\n"
+                "Repetirla es una decisión tuya: usa --repetir-evaluacion y deja el motivo en el commit.")
+        print("El conjunto de prueba ya se evaluó con esta configuración: se reutilizan los resultados.")
+    else:
+        evaluar_y_guardar(final, train, test)
+        comparar_y_guardar(train, test)
+    if not RUTA_COMPARATIVA.exists():
+        comparar_y_guardar(train, test)
+    exportar_metricas.main()
+
+
 def main() -> None:
-    df = cargar_datos()
-    train, _ = dividir(df)   # la prueba se descarta: no se usa hasta evaluate.py
+    parser = argparse.ArgumentParser(description="Entrena el modelo final y genera los artefactos.")
+    parser.add_argument("--repetir-evaluacion", action="store_true",
+                        help="vuelve a usar el conjunto de prueba aunque ya se haya evaluado")
+    parser.add_argument("--sin-evaluar", action="store_true",
+                        help="solo entrena y guarda model.joblib (no toca la prueba)")
+    args = parser.parse_args()
+
+    comprobar_recursos()
+    asegurar_datos()
+    train, test = dividir(cargar_datos())
     print(f"Entrenamiento: {len(train):,} reseñas | {train['sentimiento'].value_counts().to_dict()}")
     print(f"Configuración: {dict(PARAMS['modelo_final'])}")
 
@@ -85,6 +151,7 @@ def main() -> None:
     print(f"Entrenado en {time.perf_counter() - inicio:.1f} s | "
           f"vocabulario: {len(final.named_steps['tfidf'].vocabulary_):,} términos | "
           f"clases: {list(final.classes_)}")
+    guardar_modelo(final)
 
     print("\nPredicciones de ejemplo (texto crudo -> clase, probabilidad):")
     ejemplos = [
@@ -95,6 +162,10 @@ def main() -> None:
     for texto, probas in zip(ejemplos, final.predict_proba(ejemplos)):
         i = probas.argmax()
         print(f"  {final.classes_[i]:<9} {probas[i]:.2%}  <- {texto}")
+
+    if not args.sin_evaluar:
+        print()
+        evaluar_y_exportar(final, train, test, args.repetir_evaluacion)
 
 
 if __name__ == "__main__":
