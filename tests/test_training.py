@@ -125,4 +125,8 @@ def test_metricas_exportadas_cumplen_el_esquema_de_la_api():
                      "descripcion": describir(cfg, 4), "es_activo": True, "metricas": a_metricas_api(m)}],
     }
     respuesta = MetricasResponse(**datos)
-    assert respuesta.modelos[0].metricas.f1_macro == m["f1_macro"]
+    metricas = respuesta.modelos[0].metricas
+    assert metricas.f1_macro == m["f1_macro"]
+    # La clase minoritaria (negativo) debe llegar a la API, no quedar en null
+    assert metricas.recall_negativo == m["por_clase"]["negativo"]["recall"]
+    assert metricas.precision_negativo is not None and metricas.f1_negativo is not None
