@@ -18,18 +18,27 @@ def test_obtener_metricas_produccion(client: TestClient):
     assert "accuracy" in metricas
     assert "f1_macro" in metricas
     assert "matriz_confusion" in metricas
+    assert "precision_negativo" in metricas
+    assert "recall_negativo" in metricas
+    assert "f1_negativo" in metricas
 
 
 def test_comparar_modelos(client: TestClient):
-    """CU6: Verifica la entrega de la comparativa de modelos (Naive Bayes vs Reg. Logística)."""
+    """CU6: Verifica la entrega de la comparativa de modelos (incluyendo Línea base)."""
     response = client.get("/api/v1/metrics/compare")
 
     assert response.status_code == 200
     modelos = response.json()
     assert isinstance(modelos, list)
-    assert len(modelos) >= 2
+    assert len(modelos) >= 3
 
     nombres = [m["nombre"] for m in modelos]
     assert any("Regresión Logística" in n for n in nombres)
     assert any("Naive Bayes" in n for n in nombres)
+    assert any("Línea base" in n for n in nombres)
+
+    # Verificar que el modelo de línea base no esté activo
+    modelo_base = next(m for m in modelos if "Línea base" in m["nombre"])
+    assert modelo_base["es_activo"] is False
+    assert modelo_base["metricas"]["f1_negativo"] is not None
 
