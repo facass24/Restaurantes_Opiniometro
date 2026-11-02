@@ -171,15 +171,19 @@ contra 0,833). Estas marcas identifican la clase difícil más que explicar el f
 
 ### Lectura manual de 20 errores al azar (semilla 42)
 
-13 eran reseñas mixtas (elogios y críticas en la misma reseña, con o sin "pero"), 4 giros
-narrativos (compara con el pasado o empieza mal y termina bien), 2 quejas por hechos sin
-palabras de sentimiento y 1 posible error de etiqueta.
+10 eran reseñas mixtas (elogios y críticas en la misma reseña), 6 giros narrativos
+(comparan con el pasado o empiezan mal y terminan bien), 2 quejas por hechos sin
+palabras de sentimiento (una intoxicación, reservas no respetadas), 1 posible error de
+etiqueta y 1 caso de negación con una palabra fuera de nuestra lista ("ningún platillo
+fue bueno"). 14 eran negativas perdidas y 6 falsas alarmas, en proporción similar al
+total (178 y 70).
 
 ### Posibles errores de etiqueta
 
-Algunas etiquetas parecen inconsistentes con el texto (por ejemplo, "Muy buen restaurante...
-Recomendable" con 1 estrella, o "Malísimo... pésimo servicio" con 5). Parte de los errores
-son del dato y no del modelo, así que el desempeño real podría ser algo mejor.
+Entre los errores más seguros del modelo hay etiquetas dudosas (por ejemplo, "Muy buen
+restaurante... Recomendable" con 1 estrella, o "Malísimo... pésimo servicio" con 5). Sin
+embargo, en la lectura de 20 errores al azar solo uno parecía error de etiqueta, así que
+la causa dominante son las reseñas mixtas y no el ruido del dato.
 
 ### Limitaciones
 
