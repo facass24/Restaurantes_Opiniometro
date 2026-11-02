@@ -134,3 +134,58 @@ la decisión de la sección 7 se tomó con validación cruzada, antes de mirar l
   en validación cruzada); la brecha es algo mayor en la prueba (0,021 contra 0,010).
 
 Comando: `python -m src.models.comparar_prueba`
+
+## 10. Análisis de errores (conjunto de prueba)
+
+Se analizaron los 248 errores del modelo final (1,54 % de las 16.143 reseñas de prueba):
+178 negativas que pasaron por positivas y 70 positivas marcadas como negativas. Este
+análisis describe los fallos; no se usó para cambiar el modelo.
+
+| Estrellas originales | reseñas | accuracy | errores |
+|---|---|---|---|
+| 1 | 501 | 0,856 | 72 |
+| 2 | 468 | 0,774 | 106 |
+| 4 | 3.403 | 0,984 | 53 |
+| 5 | 11.771 | 0,999 | 17 |
+
+- El 72 % de los errores son negativas perdidas. Las de 2 estrellas son las más difíciles
+  (77 % de acierto): son reseñas de borde, que la regla 1-2 = negativo etiqueta como
+  negativas aunque en la muestra leída suelen mezclar elogios y críticas.
+- Los errores son de poca confianza: la mediana de la probabilidad es 0,76 y el 40 % está
+  por debajo de 0,70. Solo el 25 % son errores seguros (probabilidad de 0,90 o más).
+
+### Negación y "pero"
+
+| Fenómeno | % de la prueba | accuracy con | accuracy sin | % de los errores |
+|---|---|---|---|---|
+| contiene "pero" | 20,7 | 0,966 | 0,990 | 46,0 |
+| contiene negación | 31,2 | 0,966 | 0,993 | 69,8 |
+| texto largo (más de 100 palabras) | 7,6 | 0,978 | 0,985 | 10,9 |
+
+A primera vista la negación concentra la mayoría de los errores, pero la lectura es
+engañosa: la negación aparece sobre todo en reseñas negativas (14,6 % de las reseñas con
+negación son negativas, contra 2,1 % de las que no la tienen), y las negativas son la
+clase difícil. Dentro de la clase negativa, las reseñas con negación se clasifican mejor
+(accuracy 0,851) que las que no la tienen (0,755); con "pero" no hay diferencia (0,820
+contra 0,833). Estas marcas identifican la clase difícil más que explicar el fallo.
+
+### Lectura manual de 20 errores al azar (semilla 42)
+
+13 eran reseñas mixtas (elogios y críticas en la misma reseña, con o sin "pero"), 4 giros
+narrativos (compara con el pasado o empieza mal y termina bien), 2 quejas por hechos sin
+palabras de sentimiento y 1 posible error de etiqueta.
+
+### Posibles errores de etiqueta
+
+Algunas etiquetas parecen inconsistentes con el texto (por ejemplo, "Muy buen restaurante...
+Recomendable" con 1 estrella, o "Malísimo... pésimo servicio" con 5). Parte de los errores
+son del dato y no del modelo, así que el desempeño real podría ser algo mejor.
+
+### Limitaciones
+
+Un modelo de bolsa de palabras no capta bien el contraste dentro de una reseña ("buena
+comida, pero..."), que es el patrón de error más frecuente. Mejoras posibles: análisis
+por aspectos (comida, servicio, precio) y ajustar el umbral de decisión si se prioriza
+detectar negativas.
+
+Comando: `python -m src.models.analizar_errores`
