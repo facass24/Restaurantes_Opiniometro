@@ -46,3 +46,11 @@ modelo_final:          # decision del paso 3.6; la usara train.py (Fase 5)
   ngram_range: [1, 2]
   opciones:
     C: 10
+
+modelo_alternativo:    # candidato que perdio en la Fase 3; solo se reporta en prueba (4.3)
+  modelo: naive_bayes
+  reduccion: stem
+  ngram_range: [1, 2]
+  opciones:
+    alpha: 2.0
+  undersample_ratio: 3 # positivas = 3 x negativas, solo en entrenamiento

@@ -93,3 +93,103 @@ Comando: `python -m src.models.buscar_hiperparametros --ngramas 1 2 --grid grid_
 Limitaciones: la diferencia con Naive Bayes es moderada (~0,009, unas dos veces la
 variación entre pliegues); el F1 macro de la validación cruzada es una estimación que se
 verificará una sola vez con el conjunto de prueba en la Fase 4.
+
+## 8. Evaluación final en el conjunto de prueba
+
+Se evaluó una sola vez (16.143 reseñas, 969 negativas), con el modelo de la sección 7
+(Regresión Logística, stemming, unigramas + bigramas, C = 10).
+
+  | Clase | precisión | recall | F1 |
+  |---|---|---|---|
+  | negativo | 0,9187 | 0,8163 | 0,8645 |
+  | positivo | 0,9884 | 0,9954 | 0,9919 |
+
+Accuracy 0,9846 y F1 macro 0,9282, consistente con el 0,926 de la validación cruzada.
+Matriz de confusión: 791 negativas y 15.104 positivas bien clasificadas; 178 negativas
+pasaron por positivas y 70 positivas por negativas.
+
+Comando: `python -m src.models.evaluate`
+
+## 9. Comparación de modelos en el conjunto de prueba
+
+Los tres modelos se evaluaron una sola vez sobre las mismas 16.143 reseñas de prueba
+(969 negativas, 15.174 positivas). Estos números **no se usaron para elegir el modelo**:
+la decisión de la sección 7 se tomó con validación cruzada, antes de mirar la prueba.
+
+| Modelo | accuracy | F1 macro | precision_neg | recall_neg |
+|---|---|---|---|---|
+| Línea base (siempre positivo) | 0,9400 | 0,4845 | 0,0000 | 0,0000 |
+| Naive Bayes + submuestreo | 0,9785 | 0,9074 | 0,8025 | 0,8514 |
+| Regresión Logística (modelo final) | 0,9846 | 0,9282 | 0,9187 | 0,8163 |
+
+- **Contra la línea base:** con accuracy 0,94 no detecta ninguna reseña negativa (F1 macro 0,4845).
+  Los dos modelos aportan valor real.
+- **Regresión Logística contra Naive Bayes:** la Regresión Logística gana en F1 macro por
+  0,021 y tiene mucha mejor precisión sobre las negativas (0,92 contra 0,80): cuando
+  marca una reseña como negativa, casi siempre acierta.
+- **Qué cede:** Naive Bayes tiene algo más de recall sobre las negativas (0,85 contra 0,82,
+  unas 34 reseñas de 969). Es decir, deja pasar menos negativas, a costa de marcar muchas
+  positivas como negativas.
+- **Consistencia con la validación cruzada:** la dirección es la misma (0,926 contra 0,916
+  en validación cruzada); la brecha es algo mayor en la prueba (0,021 contra 0,010).
+
+Comando: `python -m src.models.comparar_prueba`
+
+## 10. Análisis de errores (conjunto de prueba)
+
+Se analizaron los 248 errores del modelo final (1,54 % de las 16.143 reseñas de prueba):
+178 negativas que pasaron por positivas y 70 positivas marcadas como negativas. Este
+análisis describe los fallos; no se usó para cambiar el modelo.
+
+| Estrellas originales | reseñas | accuracy | errores |
+|---|---|---|---|
+| 1 | 501 | 0,856 | 72 |
+| 2 | 468 | 0,774 | 106 |
+| 4 | 3.403 | 0,984 | 53 |
+| 5 | 11.771 | 0,999 | 17 |
+
+- El 72 % de los errores son negativas perdidas. Las de 2 estrellas son las más difíciles
+  (77 % de acierto): son reseñas de borde, que la regla 1-2 = negativo etiqueta como
+  negativas aunque en la muestra leída suelen mezclar elogios y críticas.
+- Los errores son de poca confianza: la mediana de la probabilidad es 0,76 y el 40 % está
+  por debajo de 0,70. Solo el 25 % son errores seguros (probabilidad de 0,90 o más).
+
+### Negación y "pero"
+
+| Fenómeno | % de la prueba | accuracy con | accuracy sin | % de los errores |
+|---|---|---|---|---|
+| contiene "pero" | 20,7 | 0,966 | 0,990 | 46,0 |
+| contiene negación | 31,2 | 0,966 | 0,993 | 69,8 |
+| texto largo (más de 100 palabras) | 7,6 | 0,978 | 0,985 | 10,9 |
+
+A primera vista la negación concentra la mayoría de los errores, pero la lectura es
+engañosa: la negación aparece sobre todo en reseñas negativas (14,6 % de las reseñas con
+negación son negativas, contra 2,1 % de las que no la tienen), y las negativas son la
+clase difícil. Dentro de la clase negativa, las reseñas con negación se clasifican mejor
+(accuracy 0,851) que las que no la tienen (0,755); con "pero" no hay diferencia (0,820
+contra 0,833). Estas marcas identifican la clase difícil más que explicar el fallo.
+
+### Lectura manual de 20 errores al azar (semilla 42)
+
+10 eran reseñas mixtas (elogios y críticas en la misma reseña), 6 giros narrativos
+(comparan con el pasado o empiezan mal y terminan bien), 2 quejas por hechos sin
+palabras de sentimiento (una intoxicación, reservas no respetadas), 1 posible error de
+etiqueta y 1 caso de negación con una palabra fuera de nuestra lista ("ningún platillo
+fue bueno"). 14 eran negativas perdidas y 6 falsas alarmas, en proporción similar al
+total (178 y 70).
+
+### Posibles errores de etiqueta
+
+Entre los errores más seguros del modelo hay etiquetas dudosas (por ejemplo, "Muy buen
+restaurante... Recomendable" con 1 estrella, o "Malísimo... pésimo servicio" con 5). Sin
+embargo, en la lectura de 20 errores al azar solo uno parecía error de etiqueta, así que
+la causa dominante son las reseñas mixtas y no el ruido del dato.
+
+### Limitaciones
+
+Un modelo de bolsa de palabras no capta bien el contraste dentro de una reseña ("buena
+comida, pero..."), que es el patrón de error más frecuente. Mejoras posibles: análisis
+por aspectos (comida, servicio, precio) y ajustar el umbral de decisión si se prioriza
+detectar negativas.
+
+Comando: `python -m src.models.analizar_errores`
