@@ -150,6 +150,45 @@ class ServicioPrediccion:
             self.pipeline = None
             self.es_modelo_real = False
 
+    def _palabras_clave(self, texto: str, maximo: int = 6) -> Optional[List[PalabraClaveDTO]]:
+        """Explicabilidad: términos de la reseña que más pesaron en la decisión del modelo.
+
+        Para una regresión logística, cada término aporta (coeficiente x valor TF-IDF) a la
+        puntuación. Un aporte positivo empuja hacia la clase positiva; uno negativo, hacia la
+        negativa. Devuelve None si el modelo no tiene coeficientes (por ejemplo, el de respaldo).
+        """
+        try:
+            if not self.pipeline or not hasattr(self.pipeline, "named_steps"):
+                return None
+
+            prep = self.pipeline.named_steps.get("preprocess") or self.pipeline.named_steps.get("preprocesador")
+            tfidf = self.pipeline.named_steps.get("tfidf") or self.pipeline.named_steps.get("vectorizador")
+            modelo = self.pipeline.named_steps.get("model") or self.pipeline.named_steps.get("clasificador")
+
+            if not prep or not tfidf or not modelo:
+                return None
+
+            if not hasattr(modelo, "coef_"):
+                return None
+
+            X = tfidf.transform(prep.transform([texto]))
+            vocabulario = tfidf.get_feature_names_out()
+            coef = modelo.coef_[0]
+            clases = [str(c).lower() for c in modelo.classes_]
+            signo = 1.0 if clases[1] == "positivo" else -1.0
+            aportes = [(vocabulario[j], float(signo * coef[j] * X[0, j])) for j in X[0].nonzero()[1]]
+            aportes.sort(key=lambda a: abs(a[1]), reverse=True)
+            return [
+                PalabraClaveDTO(
+                    palabra=p,
+                    peso=round(w, 3),
+                    polaridad="positivo" if w >= 0 else "negativo",
+                )
+                for p, w in aportes[:maximo]
+            ] or None
+        except Exception:
+            return None
+
     def predecir(self, texto: str, modelo_solicitado: Optional[str] = "auto") -> PrediccionResponse:
         """Clasifica una reseña individual y genera la traza paso a paso (CU1, CU3)."""
         inicio = time.perf_counter()
@@ -172,6 +211,8 @@ class ServicioPrediccion:
                 prediccion = self.pipeline.predict([texto])[0]
                 clase = str(prediccion).lower()
                 probabilidad = 0.90
+
+            palabras_clave = self._palabras_clave(texto)
 
             nombre_attr = getattr(self.pipeline, "nombre_modelo", None)
             if isinstance(nombre_attr, str) and nombre_attr.strip():
@@ -360,7 +401,7 @@ class ServicioPrediccion:
     def estado(self) -> EstadoResponse:
         """Consulta el estado del servicio y del artefacto en disco (CU7)."""
         return EstadoResponse(
-            estado="ok",
+            estado="ok" if self.es_modelo_real else "degraded",
             modelo_cargado=self.es_modelo_real,
             tipo_modelo="Producción (scikit-learn)" if self.es_modelo_real else "Desarrollo / Heurístico de Respaldo",
             version=API_VERSION,
