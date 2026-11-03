@@ -1,71 +1,60 @@
-export function normalizarResultado(data = {}) {
-  const res = data.resultado_sentimiento ?? data.resultado ?? data;
+const esNumero = (v) => typeof v === "number" && Number.isFinite(v);
+const fraccion = (v) => esNumero(v) && v >= 0 && v <= 1;
+const lista = (v) => Array.isArray(v) ? v.filter((item) => typeof item === "string") : [];
 
-  // Determinar si es positivo o negativo
-  const rawClase =
-    res.clase ??
-    res.sentimiento ??
-    res.sentimiento_predicho ??
-    res.prediccion ??
-    res.label ??
-    data.clase ??
-    data.sentimiento;
+export function normalizarResultado(data, texto, tiempoMedido) {
+  const etiqueta = String(data?.clase ?? data?.sentimiento ?? data?.sentiment ?? "").toLowerCase();
+  const clase = ({ positivo: "positivo", positive: "positivo", negativo: "negativo", negative: "negativo" })[etiqueta];
+  if (!clase) throw new Error("El servidor devolvió un resultado sin un sentimiento válido.");
 
-  let clase = "positivo";
-  if (typeof rawClase === "string") {
-    const s = rawClase.toLowerCase().trim();
-    if (s.includes("neg") || s === "0") {
-      clase = "negativo";
-    }
-  } else if (rawClase === 0) {
-    clase = "negativo";
-  }
+  const probabilidades = data.probabilidades ?? data.probabilities ?? {};
+  let positivo = probabilidades.positivo ?? probabilidades.positive;
+  let negativo = probabilidades.negativo ?? probabilidades.negative;
+  const confianza = data.confianza_porcentaje ?? data.confianza ?? data.confidence;
+  const confianzaPct = esNumero(confianza) && confianza >= 0 && confianza <= 100
+    ? (data.confianza_porcentaje != null || confianza > 1 ? confianza : confianza * 100) : null;
+  const probabilidad = data.probabilidad ?? (clase === "positivo" ? positivo : negativo)
+    ?? (confianzaPct == null ? null : confianzaPct / 100);
+  if (!fraccion(probabilidad)) throw new Error("El servidor devolvió una probabilidad inválida.");
+  if (!fraccion(positivo)) positivo = clase === "positivo" ? probabilidad : 1 - probabilidad;
+  if (!fraccion(negativo)) negativo = clase === "negativo" ? probabilidad : 1 - probabilidad;
 
-  // Probabilidad y desglose
-  let probabilidad =
-    res.probabilidad ??
-    res.confianza ??
-    res.score ??
-    data.probabilidad ??
-    1.0;
-
-  let probabilidades = res.probabilidades ?? data.probabilidades ?? null;
-  if (!probabilidades) {
-    probabilidades = {
-      positivo: clase === "positivo" ? probabilidad : 1 - probabilidad,
-      negativo: clase === "negativo" ? probabilidad : 1 - probabilidad,
-    };
-  }
-
-  // Extraer información para el preprocesamiento NLP
-  const pipeline = res.pasos ?? res.desglose ?? data.pasos ?? data.desglose ?? {};
-  const textoInput = data.texto || res.texto || "la comida estuvo deliciosa";
-
-  const preprocesamiento = {
-    original: pipeline.original || pipeline.texto_original || textoInput,
-    limpieza: pipeline.limpieza || pipeline.texto_normalizado || textoInput.toLowerCase(),
-    tokens: pipeline.tokens || textoInput.toLowerCase().split(/\s+/).filter(Boolean),
-    tokens_filtrados: pipeline.tokens_filtrados || pipeline.lemas || ["comida", "deliciosa"],
-  };
-
-  // Palabras clave TF-IDF
-  const palabrasClave =
-    res.palabras_clave ||
-    data.palabras_clave ||
-    pipeline.palabras_clave ||
-    [
-      { palabra: "deliciosa", peso: 2.85 },
-      { palabra: "comida", peso: 1.15 }
-    ];
-
+  const pasos = data.preprocesamiento ?? data.preprocessing ?? {};
+  const pesos = data.palabras_clave ?? pasos.pesos ?? data.word_weights ?? [];
   return {
-    clase,
-    probabilidad,
-    probabilidades,
-    confianza_porcentaje: Math.round(probabilidad * 100),
-    modelo_usado: res.modelo || res.modelo_usado || data.modelo || "Regresión Logística (TF-IDF)",
-    tiempo_ms: res.latencia_ms ?? res.tiempo_ms ?? data.latencia_ms ?? 12,
-    preprocesamiento,
-    palabrasClave,
+    clase, probabilidad, confianza_porcentaje: confianzaPct ?? probabilidad * 100,
+    probabilidades: { positivo, negativo },
+    modelo_usado: data.modelo_usado ?? data.model ?? "Modelo del servidor",
+    tiempo_ms: esNumero(data.tiempo_ms) ? data.tiempo_ms
+      : esNumero(data.response_time_ms) ? data.response_time_ms : tiempoMedido,
+    preprocesamiento: {
+      original: pasos.original ?? texto,
+      normalizado: pasos.normalizado ?? pasos.texto_normalizado ?? pasos.normalized_text ?? "",
+      tokens: lista(pasos.tokens),
+      reducidos: lista(pasos.reducidos ?? pasos.lemas ?? pasos.lemmas),
+      sin_stopwords: lista(pasos.sin_stopwords),
+    },
+    palabras_clave: Array.isArray(pesos) ? pesos.filter((p) => p && typeof p.palabra === "string" && esNumero(p.peso)) : [],
+  };
+}
+
+export function crearEjemplo() {
+  return {
+    simulado: true,
+    clase: "positivo", probabilidad: 0.947, confianza_porcentaje: 94.7,
+    probabilidades: { positivo: 0.947, negativo: 0.053 },
+    modelo_usado: "Regresión Logística (simulación)", tiempo_ms: 18.6,
+    preprocesamiento: {
+      original: "La comida estaba deliciosa y el personal fue amable, aunque el servicio tardó.",
+      normalizado: "la comida estaba deliciosa y el personal fue amable aunque el servicio tardo",
+      tokens: ["la", "comida", "estaba", "deliciosa", "y", "el", "personal", "fue", "amable", "aunque", "el", "servicio", "tardo"],
+      sin_stopwords: ["comida", "deliciosa", "personal", "amable", "servicio", "tardo"],
+      reducidos: ["comida", "delicioso", "personal", "amable", "servicio", "tardar"],
+    },
+    palabras_clave: [
+      { palabra: "delicioso", peso: 1.82, polaridad: "positivo" },
+      { palabra: "amable", peso: 1.34, polaridad: "positivo" },
+      { palabra: "tardar", peso: -0.63, polaridad: "negativo" },
+    ],
   };
 }

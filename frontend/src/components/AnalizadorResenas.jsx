@@ -1,5 +1,5 @@
 import { useState } from "react";
-import api from "../services/api.js";
+import { predecirSentimiento } from "../services/api.js";
 import { normalizarResultado } from "../services/resultadoAnalisis.js";
 import ResultadoSentimiento from "./ResultadoSentimiento.jsx";
 import NlpPasoAPaso from "./NlpPasoAPaso.jsx";
@@ -18,14 +18,28 @@ export default function AnalizadorResenas() {
     setError(null);
 
     try {
-      const { data } = await api.post("/api/v1/predict", { texto: texto.trim() });
-      setResultado(normalizarResultado(data));
+      const inicio = performance.now();
+      const data = await predecirSentimiento(texto.trim());
+      setResultado(normalizarResultado(data, texto.trim(), performance.now() - inicio));
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "Error al conectar con el backend para analizar la reseña."
-      );
+      setError(err.message);
+      setResultado(null);
+    }
+    } catch (err) {
+      let mensajeError = "Ocurrió un error al analizar la reseña.";
+    
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        mensajeError = detail;
+      } else if (Array.isArray(detail)) {
+        // Cuando FastAPI devuelve lista de errores de validación (422)
+        mensajeError = detail.map((e) => e.msg || JSON.stringify(e)).join(", ");
+      } else if (err.message) {
+        mensajeError = err.message;
+      }
+    
+      setError(mensajeError);
+    }
       setResultado(null);
     } finally {
       setCargando(false);
