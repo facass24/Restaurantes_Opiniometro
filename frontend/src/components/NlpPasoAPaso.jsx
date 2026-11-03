@@ -63,6 +63,9 @@ export default function NlpPasoAPaso({ preprocesamiento, palabrasClave = [] }) {
       <div className="mt-4 space-y-2">
         {pasos.map((paso) => {
           const estaAbierto = abierto === paso.id;
+          const maxPeso = paso.tipo === "pesos"
+  ? Math.max(...(paso.contenido || []).map((i) => Math.abs(i.peso)), 0.0001)
+  : 1;
           return (
             <div key={paso.id} className="overflow-hidden rounded-xl border border-stone-200">
               <button
@@ -112,7 +115,7 @@ export default function NlpPasoAPaso({ preprocesamiento, palabrasClave = [] }) {
                       )}
                       {(paso.contenido || []).map((item) => {
                         const positivo = item.polaridad ? item.polaridad === "positivo" : item.peso >= 0;
-                        const ancho = Math.min(Math.abs(item.peso) * 40, 100);
+                        const ancho = (Math.abs(item.peso) / maxPeso) * 100;
                         return (
                           <div key={`${item.palabra}-${item.peso}`} className="grid grid-cols-[7rem_1fr_4rem] items-center gap-2">
                             <span className="truncate font-mono text-xs text-stone-700">

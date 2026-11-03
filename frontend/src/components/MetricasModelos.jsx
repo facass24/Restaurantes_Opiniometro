@@ -84,11 +84,30 @@ export default function MetricasModelos() {
     : null;
   const total = matriz ? matriz.flat().reduce((a, b) => a + b, 0) : null;
 
+  // Extraer valores de la matriz: fila 0 = Negativo [TN, FP], fila 1 = Positivo [FN, TP]
+  const tn = matriz ? matriz[0][0] : null;
+  const fp = matriz ? matriz[0][1] : null;
+  const fn = matriz ? matriz[1][0] : null;
+
+  // Precision Negativa = TN / (TN + FN)
+  const precisionNegativo =
+    metricas.precision_negativo ??
+    metricas.precision_negativa ??
+    (tn !== null && fn !== null && tn + fn > 0 ? tn / (tn + fn) : null);
+
+  // Recall Negativo = TN / (TN + FP)
+  const recallNegativo =
+    metricas.recall_negativo ??
+    metricas.recall_negativa ??
+    (tn !== null && fp !== null && tn + fp > 0 ? tn / (tn + fp) : null);
+
   const tarjetas = [
     ["F1-Score Macro", porcentaje(metricas.f1_macro)],
     ["Precision Macro", porcentaje(metricas.precision)],
     ["Recall Macro", porcentaje(metricas.recall)],
-    ["Muestras Totales", total !== null ? entero(total) : "—"],
+    ["Precisión negativa", porcentaje(precisionNegativo)],
+    ["Recall negativo", porcentaje(recallNegativo)],
+    ["Muestras de prueba", total !== null ? entero(total) : "—"],
   ];
 
   const etiquetas = [
@@ -98,7 +117,7 @@ export default function MetricasModelos() {
 
   return (
     <section className="space-y-5" aria-busy={cargando}>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Métricas de modelos</h2>
           <p className="mt-1 text-sm text-stone-500">
