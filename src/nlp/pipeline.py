@@ -30,7 +30,7 @@ class PreprocesadorTexto(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        quitar_tildes: bool = False,
+        quitar_tildes: bool = True,
         quitar_numeros: bool = False,
         metodo_reduccion: str = "stem",
         conservar_stopwords: Iterable[str] | None = None,

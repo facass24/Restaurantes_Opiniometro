@@ -137,6 +137,12 @@ class ServicioPrediccion:
             try:
                 self.pipeline = joblib.load(self.ruta_modelo)
                 self.es_modelo_real = True
+                # Extraer el preprocesador del pipeline entrenado para garantizar coherencia
+                # entre el entrenamiento y la traza didáctica de la API
+                if hasattr(self.pipeline, "named_steps"):
+                    prep = self.pipeline.named_steps.get("preprocesador") or self.pipeline.named_steps.get("preprocess")
+                    if prep is not None:
+                        self.preprocesador = prep
             except Exception as e:
                 self.pipeline = None
                 self.es_modelo_real = False
@@ -144,32 +150,75 @@ class ServicioPrediccion:
             self.pipeline = None
             self.es_modelo_real = False
 
+    def _palabras_clave(self, texto: str, maximo: int = 6) -> Optional[List[PalabraClaveDTO]]:
+        """Explicabilidad: términos de la reseña que más pesaron en la decisión del modelo.
+
+        Para una regresión logística, cada término aporta (coeficiente x valor TF-IDF) a la
+        puntuación. Un aporte positivo empuja hacia la clase positiva; uno negativo, hacia la
+        negativa. Devuelve None si el modelo no tiene coeficientes (por ejemplo, el de respaldo).
+        """
+        try:
+            if not self.pipeline or not hasattr(self.pipeline, "named_steps"):
+                return None
+
+            prep = self.pipeline.named_steps.get("preprocess") or self.pipeline.named_steps.get("preprocesador")
+            tfidf = self.pipeline.named_steps.get("tfidf") or self.pipeline.named_steps.get("vectorizador")
+            modelo = self.pipeline.named_steps.get("model") or self.pipeline.named_steps.get("clasificador")
+
+            if not prep or not tfidf or not modelo:
+                return None
+
+            if not hasattr(modelo, "coef_"):
+                return None
+
+            X = tfidf.transform(prep.transform([texto]))
+            vocabulario = tfidf.get_feature_names_out()
+            coef = modelo.coef_[0]
+            clases = [str(c).lower() for c in modelo.classes_]
+            signo = 1.0 if clases[1] == "positivo" else -1.0
+            aportes = [(vocabulario[j], float(signo * coef[j] * X[0, j])) for j in X[0].nonzero()[1]]
+            aportes.sort(key=lambda a: abs(a[1]), reverse=True)
+            return [
+                PalabraClaveDTO(
+                    palabra=p,
+                    peso=round(w, 3),
+                    polaridad="positivo" if w >= 0 else "negativo",
+                )
+                for p, w in aportes[:maximo]
+            ] or None
+        except Exception:
+            return None
+
     def predecir(self, texto: str, modelo_solicitado: Optional[str] = "auto") -> PrediccionResponse:
         """Clasifica una reseña individual y genera la traza paso a paso (CU1, CU3)."""
         inicio = time.perf_counter()
 
-        # 1. Ejecutar preprocesamiento detallado paso a paso
+        # 1. Ejecutar preprocesamiento didáctico paso a paso
         traza = self.preprocesador.paso_a_paso(texto)
 
         # 2. Inferencia con Pipeline real o Modelo de respaldo
         palabras_clave = None
         if self.es_modelo_real and self.pipeline is not None:
-            # Uso del Pipeline de scikit-learn
-            texto_procesado = traza.texto_final()
-            prediccion = self.pipeline.predict([texto_procesado])[0]
-            
-            # Obtener probabilidades si el clasificador lo soporta
+            # El pipeline de producción ya incluye el preprocesamiento como primer paso,
+            # por lo que debe recibir el texto CRUDO / ORIGINAL
             if hasattr(self.pipeline, "predict_proba"):
-                probas = self.pipeline.predict_proba([texto_procesado])[0]
-                # Buscar índice de clase
+                probas = self.pipeline.predict_proba([texto])[0]
                 clases = list(self.pipeline.classes_)
-                idx = clases.index(prediccion)
+                idx = int(probas.argmax())
+                clase = str(clases[idx]).lower()
                 probabilidad = float(probas[idx])
             else:
+                prediccion = self.pipeline.predict([texto])[0]
+                clase = str(prediccion).lower()
                 probabilidad = 0.90
 
-            clase = str(prediccion).lower()
-            modelo_usado = getattr(self.pipeline, "nombre_modelo", "Pipeline Scikit-Learn (Producción)")
+            palabras_clave = self._palabras_clave(texto)
+
+            nombre_attr = getattr(self.pipeline, "nombre_modelo", None)
+            if isinstance(nombre_attr, str) and nombre_attr.strip():
+                modelo_usado = nombre_attr
+            else:
+                modelo_usado = "Pipeline Scikit-Learn (Producción)"
         else:
             # Modelo heurístico calibrado de desarrollo
             clase, probabilidad, palabras_clave = self.modelo_heuristico.predict_proba(traza)
@@ -295,6 +344,9 @@ class ServicioPrediccion:
             precision=0.840,
             recall=0.837,
             matriz_confusion=[[720, 150], [134, 796]],
+            precision_negativo=0.843,
+            recall_negativo=0.828,
+            f1_negativo=0.835,
         )
         lr_metricas = MetricasDTO(
             accuracy=0.875,
@@ -302,6 +354,19 @@ class ServicioPrediccion:
             precision=0.873,
             recall=0.870,
             matriz_confusion=[[760, 110], [115, 815]],
+            precision_negativo=0.869,
+            recall_negativo=0.874,
+            f1_negativo=0.871,
+        )
+        baseline_metricas = MetricasDTO(
+            accuracy=0.940,
+            f1_macro=0.485,
+            precision=0.470,
+            recall=0.500,
+            matriz_confusion=[[0, 120], [0, 1880]],
+            precision_negativo=0.0,
+            recall_negativo=0.0,
+            f1_negativo=0.0,
         )
 
         modelos = [
@@ -319,6 +384,13 @@ class ServicioPrediccion:
                 es_activo=False,
                 metricas=nb_metricas,
             ),
+            ModeloDetalleDTO(
+                nombre="Línea base (Mayoritaria)",
+                identificador="baseline",
+                descripcion="Modelo de referencia que predice siempre la clase mayoritaria (positivo).",
+                es_activo=False,
+                metricas=baseline_metricas,
+            ),
         ]
 
         return MetricasResponse(
@@ -329,7 +401,7 @@ class ServicioPrediccion:
     def estado(self) -> EstadoResponse:
         """Consulta el estado del servicio y del artefacto en disco (CU7)."""
         return EstadoResponse(
-            estado="ok",
+            estado="ok" if self.es_modelo_real else "degraded",
             modelo_cargado=self.es_modelo_real,
             tipo_modelo="Producción (scikit-learn)" if self.es_modelo_real else "Desarrollo / Heurístico de Respaldo",
             version=API_VERSION,

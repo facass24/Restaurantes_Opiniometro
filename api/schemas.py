@@ -121,6 +121,9 @@ class MetricasDTO(BaseModel):
     precision: float
     recall: float
     matriz_confusion: List[List[int]]
+    precision_negativo: Optional[float] = None
+    recall_negativo: Optional[float] = None
+    f1_negativo: Optional[float] = None
 
 
 class ModeloDetalleDTO(BaseModel):
