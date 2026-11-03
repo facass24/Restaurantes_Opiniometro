@@ -14,3 +14,9 @@ def test_consultar_salud_retorna_200_ok(client: TestClient):
     assert "version" in data
     assert "detalles" in data
 
+    # Si no hay modelo real cargado, el estado debe ser 'degraded'
+    if not data["modelo_cargado"]:
+        assert data["estado"] == "degraded"
+    else:
+        assert data["estado"] == "ok"
+
