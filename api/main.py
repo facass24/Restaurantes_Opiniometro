@@ -17,7 +17,7 @@ from src.config import (
     CORS_ORIGINS,
 )
 from api.service import ServicioPrediccion
-from api.routers import health, predict, metrics
+from api.routers import health, predict, metrics, batches
 
 
 @asynccontextmanager
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix=API_V1_PREFIX)
     app.include_router(predict.router, prefix=API_V1_PREFIX)
     app.include_router(metrics.router, prefix=API_V1_PREFIX)
+    app.include_router(batches.router, prefix=API_V1_PREFIX)
 
     # Redirección amigable desde la raíz a la documentación interactiva
     @app.get("/", include_in_schema=False)

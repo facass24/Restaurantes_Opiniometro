@@ -14,7 +14,11 @@ RAW_DATA_PATH = DATA_DIR / "raw" / "restaurantes.csv"
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
 MODEL_PATH = ARTIFACTS_DIR / "model.joblib"
 METRICS_PATH = ARTIFACTS_DIR / "metrics.json"
+BATCHES_DIR = ARTIFACTS_DIR / "batches"
 PARAMS_PATH = BASE_DIR / "params.yaml"
+
+# Asegurar existencia del directorio de lotes
+BATCHES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configuración de la API FastAPI
 API_TITLE = "Opiniómetro de Restaurantes API"

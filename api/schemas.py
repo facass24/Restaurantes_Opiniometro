@@ -152,3 +152,115 @@ class EstadoResponse(BaseModel):
     version: str
     detalles: dict
 
+
+# ============================================================================
+# DTOs para Procesamiento Avanzado de Archivos (CSV / Excel) y Alertas por Sede
+# ============================================================================
+
+class ReseñaItemProcesadaDTO(BaseModel):
+    """Detalle de una reseña analizada dentro de un archivo procesado."""
+
+    indice: int = Field(..., description="Número secuencial de fila en el archivo.")
+    reseña_original: str = Field(..., description="Texto original de la reseña.")
+    sentimiento: Literal["Positivo", "Negativo"] = Field(
+        ..., description="Sentimiento asignado a la opinión."
+    )
+    certeza: float = Field(
+        ..., description="Porcentaje numérico de certeza calibrada (ej. 94.5)."
+    )
+    probabilidad_positiva: float = Field(
+        ..., description="Probabilidad matemática de clase positiva (0.0 a 1.0)."
+    )
+    probabilidad_negativa: float = Field(
+        ..., description="Probabilidad matemática de clase negativa (0.0 a 1.0)."
+    )
+    sucursal: Optional[str] = Field(
+        default=None, description="Sucursal o sede donde se originó la opinión."
+    )
+    fecha: Optional[str] = Field(
+        default=None, description="Fecha o marca temporal registrada."
+    )
+
+
+class ResumenLoteAvanzadoDTO(BaseModel):
+    """Estadísticas consolidadas del lote analizado."""
+
+    total_procesadas: int = Field(..., description="Total de opiniones procesadas.")
+    positivas: int = Field(..., description="Cantidad de opiniones positivas.")
+    negativas: int = Field(..., description="Cantidad de opiniones negativas.")
+    porcentaje_satisfaccion: float = Field(
+        ..., description="Porcentaje de opiniones positivas sobre el total procesado."
+    )
+    porcentaje_insatisfaccion: float = Field(
+        ..., description="Porcentaje de opiniones negativas sobre el total procesado."
+    )
+    tiene_sucursales: bool = Field(
+        default=False, description="Indica si el archivo contenía columna de sucursal."
+    )
+    tiene_fechas: bool = Field(
+        default=False, description="Indica si el archivo contenía columna de fecha."
+    )
+
+
+class AlertaSucursalDTO(BaseModel):
+    """Diagnóstico y nivel de alerta operativa para una sucursal específica."""
+
+    sucursal: str = Field(..., description="Nombre de la sucursal o sede.")
+    total_reseñas: int = Field(..., description="Total de reseñas de esta sucursal.")
+    positivas: int = Field(..., description="Reseñas positivas recibidas.")
+    negativas: int = Field(..., description="Quejas o reseñas negativas recibidas.")
+    porcentaje_insatisfaccion: float = Field(
+        ..., description="Porcentaje de quejas sobre el total de la sede."
+    )
+    nivel_alerta: Literal["NORMAL", "ATENCION", "CRITICO"] = Field(
+        ..., description="Nivel de alerta (NORMAL <15%, ATENCION 15-25%, CRITICO >25%)."
+    )
+    mensaje: str = Field(..., description="Resumen cualitativo de la situación operativa.")
+    palabras_criticas: List[str] = Field(
+        default_factory=list,
+        description="Términos negativos más frecuentes detectados en la sucursal.",
+    )
+
+
+class AlertasLoteResponse(BaseModel):
+    """Resumen consolidado de alertas por sucursal de un lote procesado."""
+
+    batch_id: str = Field(..., description="Identificador único del lote.")
+    fecha_analisis: str = Field(..., description="Marca temporal del análisis.")
+    total_sucursales: int = Field(..., description="Cantidad total de sucursales evaluadas.")
+    sucursales_en_alerta: int = Field(
+        ..., description="Cantidad de sucursales en estado ATENCIÓN o CRÍTICO."
+    )
+    alertas: List[AlertaSucursalDTO] = Field(
+        ..., description="Detalle de alertas por cada sucursal."
+    )
+
+
+class LoteEstadoResponse(BaseModel):
+    """Estado, progreso y resultados de un lote de análisis."""
+
+    batch_id: str = Field(..., description="Identificador único del lote.")
+    nombre_archivo: str = Field(..., description="Nombre del archivo original cargado.")
+    estado: Literal["PROCESSING", "COMPLETED", "FAILED"] = Field(
+        ..., description="Estado de procesamiento del lote."
+    )
+    progreso_porcentaje: float = Field(
+        default=0.0, description="Porcentaje de avance (0.0 a 100.0)."
+    )
+    total_filas: int = Field(default=0, description="Total de filas a procesar.")
+    filas_procesadas: int = Field(default=0, description="Filas analizadas hasta el momento.")
+    fecha_creacion: str = Field(..., description="Fecha de creación del lote.")
+    resumen: Optional[ResumenLoteAvanzadoDTO] = Field(
+        default=None, description="Resumen estadístico (disponible al completar)."
+    )
+    resultados: Optional[List[ReseñaItemProcesadaDTO]] = Field(
+        default=None, description="Listado de reseñas clasificadas."
+    )
+    archivo_descargable: bool = Field(
+        default=False, description="Indica si el archivo Excel procesado está listo para descarga."
+    )
+    error: Optional[str] = Field(
+        default=None, description="Mensaje de error en caso de fallo."
+    )
+
+

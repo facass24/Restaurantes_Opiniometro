@@ -8,13 +8,15 @@ la inferencia con cálculo de métricas y el procesamiento de lotes CSV.
 import io
 import json
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 
 import pandas as pd
 import joblib
 
-from src.config import MODEL_PATH, METRICS_PATH, API_VERSION
+from src.config import MODEL_PATH, METRICS_PATH, BATCHES_DIR, API_VERSION
 from src.nlp.pipeline import PreprocesadorTexto, ResultadoPreprocesamiento
 from api.schemas import (
     PrediccionResponse,
@@ -27,6 +29,11 @@ from api.schemas import (
     ModeloDetalleDTO,
     MetricasDTO,
     EstadoResponse,
+    ReseñaItemProcesadaDTO,
+    ResumenLoteAvanzadoDTO,
+    AlertaSucursalDTO,
+    AlertasLoteResponse,
+    LoteEstadoResponse,
 )
 
 
@@ -412,4 +419,419 @@ class ServicioPrediccion:
                 "metricas_existen_en_disco": self.ruta_metricas.exists(),
             },
         )
+
+    # =========================================================================
+    # Métodos para Procesamiento Avanzado de Archivos (CSV / Excel) y Lotes
+    # =========================================================================
+
+    def _leer_dataframe_archivo(self, contenido_bytes: bytes, nombre_archivo: str) -> pd.DataFrame:
+        """Valida la extensión, tamaño y lee el contenido a un DataFrame de pandas."""
+        max_size = 25 * 1024 * 1024  # 25 MB
+        if len(contenido_bytes) > max_size:
+            raise ValueError("El archivo excede el tamaño máximo permitido de 25 MB.")
+
+        nombre_lower = nombre_archivo.lower()
+        if nombre_lower.endswith(".csv"):
+            try:
+                return pd.read_csv(io.BytesIO(contenido_bytes), encoding="utf-8")
+            except UnicodeDecodeError:
+                return pd.read_csv(io.BytesIO(contenido_bytes), encoding="latin-1")
+        elif nombre_lower.endswith(".xlsx"):
+            return pd.read_excel(io.BytesIO(contenido_bytes), engine="openpyxl")
+        elif nombre_lower.endswith(".xls"):
+            try:
+                return pd.read_excel(io.BytesIO(contenido_bytes), engine="xlrd")
+            except Exception:
+                raise ValueError(
+                    "El formato .xls (Excel 97-2003) requiere la librería xlrd. "
+                    "Por favor guarde o exporte su archivo en formato moderno .xlsx o .csv."
+                )
+        else:
+            raise ValueError("Formato de archivo no soportado. Debe ser .csv o .xlsx.")
+
+    def _detectar_columnas(self, df: pd.DataFrame) -> Tuple[str, Optional[str], Optional[str]]:
+        """Identifica de forma inteligente las columnas de reseña, sucursal y fecha."""
+        candidatos_resena = [
+            "resena", "reseña", "review", "opinion", "opinión",
+            "texto", "comentario", "comment", "contenido", "descripcion"
+        ]
+        candidatos_sucursal = [
+            "sucursal", "branch", "sede", "tienda", "local",
+            "ubicacion", "ubicación", "restaurante", "punto_venta"
+        ]
+        candidatos_fecha = [
+            "fecha", "date", "timestamp", "dia", "día", "created_at", "momento"
+        ]
+
+        col_resena = None
+        for col in df.columns:
+            if str(col).lower().strip() in candidatos_resena:
+                col_resena = str(col)
+                break
+
+        if not col_resena:
+            cols_texto = df.select_dtypes(include=["object"]).columns
+            if len(cols_texto) > 0:
+                col_resena = str(cols_texto[0])
+            else:
+                col_resena = str(df.columns[0])
+
+        col_sucursal = None
+        for col in df.columns:
+            if str(col).lower().strip() in candidatos_sucursal:
+                col_sucursal = str(col)
+                break
+
+        col_fecha = None
+        for col in df.columns:
+            if str(col).lower().strip() in candidatos_fecha:
+                col_fecha = str(col)
+                break
+
+        return col_resena, col_sucursal, col_fecha
+
+    def _calcular_alertas_sucursales(
+        self,
+        df_evaluado: pd.DataFrame,
+        col_sucursal: Optional[str],
+        batch_id: str,
+    ) -> AlertasLoteResponse:
+        """Calcula el índice de insatisfacción y clasifica el nivel de alerta por sucursal."""
+        fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        alertas: List[AlertaSucursalDTO] = []
+
+        palabras_criticas_base = [
+            "tardo", "tardó", "lento", "lenta", "demora", "espera", "frio", "frío", "crudo", "cruda",
+            "quemado", "quemada", "caro", "cara", "carisimo", "carísimo", "sucio", "sucia",
+            "malo", "mala", "pesimo", "pésimo", "pesima", "pésima", "grosero", "grosera",
+            "horrible", "decepcion", "decepción", "desabrido", "desabrida", "grasa", "cobro", "cuenta"
+        ]
+
+        if not col_sucursal or col_sucursal not in df_evaluado.columns:
+            # Archivo sin sucursales: generar alerta general consolidada
+            total = len(df_evaluado)
+            negs = int((df_evaluado["sentimiento"] == "Negativo").sum())
+            pos = int((df_evaluado["sentimiento"] == "Positivo").sum())
+            pct_insat = round((negs / total * 100), 1) if total > 0 else 0.0
+
+            if pct_insat < 15.0:
+                nivel = "NORMAL"
+                msj = "Operación general saludable. Nivel de quejas dentro del umbral normal (<15%)."
+            elif pct_insat <= 25.0:
+                nivel = "ATENCION"
+                msj = f"Atención requerida: tasa de quejas general del {pct_insat}%. Revisar tiempos y cocina."
+            else:
+                nivel = "CRITICO"
+                msj = f"Alerta crítica: tasa de quejas general del {pct_insat}%. Urge auditoría en cocina y salón."
+
+            alertas.append(
+                AlertaSucursalDTO(
+                    sucursal="General (Sin desglose de sucursal)",
+                    total_reseñas=total,
+                    positivas=pos,
+                    negativas=negs,
+                    porcentaje_insatisfaccion=pct_insat,
+                    nivel_alerta=nivel,
+                    mensaje=msj,
+                    palabras_criticas=[],
+                )
+            )
+            return AlertasLoteResponse(
+                batch_id=batch_id,
+                fecha_analisis=fecha_actual,
+                total_sucursales=1,
+                sucursales_en_alerta=1 if nivel != "NORMAL" else 0,
+                alertas=alertas,
+            )
+
+        # Agrupar por sucursal detectada
+        grupos = df_evaluado.groupby(col_sucursal)
+        sucursales_en_alerta = 0
+
+        for nombre_sucursal, df_sede in grupos:
+            sucursal_str = str(nombre_sucursal).strip() or "No especificada"
+            total_sede = len(df_sede)
+            negs_sede = int((df_sede["sentimiento"] == "Negativo").sum())
+            pos_sede = int((df_sede["sentimiento"] == "Positivo").sum())
+            pct_insat = round((negs_sede / total_sede * 100), 1) if total_sede > 0 else 0.0
+
+            # Umbrales solicitados: Normal <15%, Atención 15-25%, Crítico >25%
+            if pct_insat < 15.0:
+                nivel = "NORMAL"
+                msj = "Operación saludable. Tasa de inconformidad baja y bajo control."
+            elif pct_insat <= 25.0:
+                nivel = "ATENCION"
+                sucursales_en_alerta += 1
+                msj = f"Atención requerida: {pct_insat}% de quejas. Monitorear personal y cocina en horas pico."
+            else:
+                nivel = "CRITICO"
+                sucursales_en_alerta += 1
+                msj = f"Alerta crítica: {pct_insat}% de quejas. Requiere intervención inmediata de operaciones."
+
+            # Detección de palabras críticas en quejas de esta sede
+            textos_quejas = " ".join(
+                df_sede[df_sede["sentimiento"] == "Negativo"]["_texto_analisis"].dropna().astype(str).tolist()
+            ).lower()
+            palabras_detectadas = [w for w in palabras_criticas_base if w in textos_quejas][:4]
+
+            alertas.append(
+                AlertaSucursalDTO(
+                    sucursal=sucursal_str,
+                    total_reseñas=total_sede,
+                    positivas=pos_sede,
+                    negativas=negs_sede,
+                    porcentaje_insatisfaccion=pct_insat,
+                    nivel_alerta=nivel,
+                    mensaje=msj,
+                    palabras_criticas=palabras_detectadas,
+                )
+            )
+
+        # Ordenar: primero sucursales críticas, luego atención, luego normales
+        orden_nivel = {"CRITICO": 0, "ATENCION": 1, "NORMAL": 2}
+        alertas.sort(key=lambda a: (orden_nivel.get(a.nivel_alerta, 3), -a.porcentaje_insatisfaccion))
+
+        return AlertasLoteResponse(
+            batch_id=batch_id,
+            fecha_analisis=fecha_actual,
+            total_sucursales=len(alertas),
+            sucursales_en_alerta=sucursales_en_alerta,
+            alertas=alertas,
+        )
+
+    def procesar_archivo_tabular(
+        self,
+        contenido_bytes: bytes,
+        nombre_archivo: str,
+        batch_id: Optional[str] = None,
+    ) -> Tuple[LoteEstadoResponse, bytes, AlertasLoteResponse]:
+        """Procesa un archivo .csv o .xlsx, genera el Excel con resultados y el informe de alertas."""
+        if not batch_id:
+            batch_id = str(uuid.uuid4())[:8]
+
+        fecha_creacion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        df = self._leer_dataframe_archivo(contenido_bytes, nombre_archivo)
+        if df.empty:
+            raise ValueError("El archivo subido está vacío y no contiene filas de datos.")
+
+        col_resena, col_sucursal, col_fecha = self._detectar_columnas(df)
+
+        textos_originales = df[col_resena].fillna("").astype(str).tolist()
+        df["_texto_analisis"] = textos_originales
+
+        lista_sentimiento: List[str] = []
+        lista_certeza: List[float] = []
+        lista_prob_pos: List[float] = []
+        lista_prob_neg: List[float] = []
+        resultados_dto: List[ReseñaItemProcesadaDTO] = []
+
+        positivas = 0
+        negativas = 0
+
+        # Clasificación individual de cada registro
+        for i, texto_raw in enumerate(textos_originales):
+            limpio = texto_raw.strip()
+            if not limpio:
+                # Fila sin texto
+                sent = "Positivo"
+                certeza = 50.0
+                p_pos = 0.50
+                p_neg = 0.50
+            else:
+                if self.es_modelo_real and self.pipeline is not None:
+                    try:
+                        probas = self.pipeline.predict_proba([limpio])[0]
+                        clases = [str(c).lower() for c in self.pipeline.classes_]
+                        idx_pos = clases.index("positivo") if "positivo" in clases else int(probas.argmax())
+                        idx_neg = 1 - idx_pos if len(clases) == 2 else 0
+
+                        p_pos = round(float(probas[idx_pos]), 4)
+                        p_neg = round(float(probas[idx_neg]), 4)
+                        if p_pos >= p_neg:
+                            sent = "Positivo"
+                            certeza = round(p_pos * 100, 1)
+                        else:
+                            sent = "Negativo"
+                            certeza = round(p_neg * 100, 1)
+                    except Exception:
+                        traza = self.preprocesador.paso_a_paso(limpio)
+                        clase_raw, prob, _ = self.modelo_heuristico.predict_proba(traza)
+                        sent = "Positivo" if clase_raw == "positivo" else "Negativo"
+                        certeza = round(prob * 100, 1)
+                        p_pos = round(prob, 4) if sent == "Positivo" else round(1.0 - prob, 4)
+                        p_neg = round(prob, 4) if sent == "Negativo" else round(1.0 - prob, 4)
+                else:
+                    traza = self.preprocesador.paso_a_paso(limpio)
+                    clase_raw, prob, _ = self.modelo_heuristico.predict_proba(traza)
+                    sent = "Positivo" if clase_raw == "positivo" else "Negativo"
+                    certeza = round(prob * 100, 1)
+                    p_pos = round(prob, 4) if sent == "Positivo" else round(1.0 - prob, 4)
+                    p_neg = round(prob, 4) if sent == "Negativo" else round(1.0 - prob, 4)
+
+            if sent == "Positivo":
+                positivas += 1
+            else:
+                negativas += 1
+
+            lista_sentimiento.append(sent)
+            lista_certeza.append(certeza)
+            lista_prob_pos.append(p_pos)
+            lista_prob_neg.append(p_neg)
+
+            sucursal_val = str(df.iloc[i][col_sucursal]) if col_sucursal and pd.notna(df.iloc[i][col_sucursal]) else None
+            fecha_val = str(df.iloc[i][col_fecha]) if col_fecha and pd.notna(df.iloc[i][col_fecha]) else None
+
+            resultados_dto.append(
+                ReseñaItemProcesadaDTO(
+                    indice=i + 1,
+                    reseña_original=texto_raw[:120] + "..." if len(texto_raw) > 120 else texto_raw,
+                    sentimiento=sent,
+                    certeza=certeza,
+                    probabilidad_positiva=p_pos,
+                    probabilidad_negativa=p_neg,
+                    sucursal=sucursal_val,
+                    fecha=fecha_val,
+                )
+            )
+
+        total = len(resultados_dto)
+        pct_sat = round((positivas / total * 100), 1) if total > 0 else 0.0
+        pct_insat = round((negativas / total * 100), 1) if total > 0 else 0.0
+
+        resumen = ResumenLoteAvanzadoDTO(
+            total_procesadas=total,
+            positivas=positivas,
+            negativas=negativas,
+            porcentaje_satisfaccion=pct_sat,
+            porcentaje_insatisfaccion=pct_insat,
+            tiene_sucursales=col_sucursal is not None,
+            tiene_fechas=col_fecha is not None,
+        )
+
+        # Construir DataFrame final conservando columnas originales + nuevas requeridas
+        df_export = df.drop(columns=["_texto_analisis"], errors="ignore").copy()
+        df_export["sentimiento"] = lista_sentimiento
+        df_export["certeza"] = lista_certeza  # Decimal como solicitado (ej. 94.5)
+        df_export["probabilidad_positiva"] = lista_prob_pos
+        df_export["probabilidad_negativa"] = lista_prob_neg
+
+        # Generar archivo Excel (.xlsx) con openpyxl
+        buffer_excel = io.BytesIO()
+        with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
+            df_export.to_excel(writer, index=False, sheet_name="Resultados_Opiniometro")
+        excel_bytes = buffer_excel.getvalue()
+
+        # Calcular diagnóstico de alertas por sucursal
+        df["sentimiento"] = lista_sentimiento
+        alertas_resp = self._calcular_alertas_sucursales(df, col_sucursal, batch_id)
+
+        # Respuesta de estado completa
+        lote_resp = LoteEstadoResponse(
+            batch_id=batch_id,
+            nombre_archivo=nombre_archivo,
+            estado="COMPLETED",
+            progreso_porcentaje=100.0,
+            total_filas=total,
+            filas_procesadas=total,
+            fecha_creacion=fecha_creacion,
+            resumen=resumen,
+            resultados=resultados_dto,
+            archivo_descargable=True,
+            error=None,
+        )
+
+        # Persistir artefactos en BATCHES_DIR
+        self._guardar_artefactos_lote(batch_id, lote_resp, excel_bytes, alertas_resp)
+
+        return lote_resp, excel_bytes, alertas_resp
+
+    def _guardar_artefactos_lote(
+        self,
+        batch_id: str,
+        lote_resp: LoteEstadoResponse,
+        excel_bytes: bytes,
+        alertas_resp: AlertasLoteResponse,
+    ) -> None:
+        """Persiste el JSON de estado, el Excel procesado y las alertas en disco."""
+        try:
+            ruta_json = BATCHES_DIR / f"{batch_id}.json"
+            ruta_excel = BATCHES_DIR / f"{batch_id}_procesado.xlsx"
+            ruta_alerts = BATCHES_DIR / f"{batch_id}_alerts.json"
+
+            with open(ruta_json, "w", encoding="utf-8") as f:
+                json.dump(lote_resp.model_dump(), f, ensure_ascii=False, indent=2)
+
+            with open(ruta_excel, "wb") as f:
+                f.write(excel_bytes)
+
+            with open(ruta_alerts, "w", encoding="utf-8") as f:
+                json.dump(alertas_resp.model_dump(), f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def ejecutar_lote_en_segundo_plano(
+        self,
+        batch_id: str,
+        contenido_bytes: bytes,
+        nombre_archivo: str,
+    ) -> None:
+        """Función ejecutada por FastAPI BackgroundTasks para archivos mayores a 500 filas."""
+        try:
+            self.procesar_archivo_tabular(contenido_bytes, nombre_archivo, batch_id=batch_id)
+        except Exception as e:
+            # Registrar estado fallido
+            ruta_json = BATCHES_DIR / f"{batch_id}.json"
+            fallo = LoteEstadoResponse(
+                batch_id=batch_id,
+                nombre_archivo=nombre_archivo,
+                estado="FAILED",
+                progreso_porcentaje=0.0,
+                total_filas=0,
+                filas_procesadas=0,
+                fecha_creacion=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                resumen=None,
+                resultados=None,
+                archivo_descargable=False,
+                error=f"Error durante el procesamiento asíncrono: {str(e)}",
+            )
+            with open(ruta_json, "w", encoding="utf-8") as f:
+                json.dump(fallo.model_dump(), f, ensure_ascii=False, indent=2)
+
+    def obtener_lote(self, batch_id: str) -> Optional[LoteEstadoResponse]:
+        """Recupera el estado y resultados de un lote consultado por su identificador."""
+        ruta_json = BATCHES_DIR / f"{batch_id}.json"
+        if not ruta_json.exists():
+            return None
+        try:
+            with open(ruta_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return LoteEstadoResponse(**data)
+        except Exception:
+            return None
+
+    def obtener_archivo_descarga(self, batch_id: str) -> Optional[Tuple[bytes, str]]:
+        """Recupera los bytes del archivo Excel generado para su descarga."""
+        ruta_excel = BATCHES_DIR / f"{batch_id}_procesado.xlsx"
+        if not ruta_excel.exists():
+            return None
+        try:
+            with open(ruta_excel, "rb") as f:
+                contenido = f.read()
+            return contenido, f"predicciones_lote_{batch_id}.xlsx"
+        except Exception:
+            return None
+
+    def obtener_alertas_lote(self, batch_id: str) -> Optional[AlertasLoteResponse]:
+        """Recupera el informe de alertas por sucursal de un lote procesado."""
+        ruta_alerts = BATCHES_DIR / f"{batch_id}_alerts.json"
+        if not ruta_alerts.exists():
+            return None
+        try:
+            with open(ruta_alerts, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return AlertasLoteResponse(**data)
+        except Exception:
+            return None
+
 
