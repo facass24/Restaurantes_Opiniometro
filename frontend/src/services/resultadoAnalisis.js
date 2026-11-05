@@ -10,31 +10,42 @@ export function normalizarResultado(data, texto, tiempoMedido) {
   const probabilidades = data.probabilidades ?? data.probabilities ?? {};
   let positivo = probabilidades.positivo ?? probabilidades.positive;
   let negativo = probabilidades.negativo ?? probabilidades.negative;
+  
   const confianza = data.confianza_porcentaje ?? data.confianza ?? data.confidence;
   const confianzaPct = esNumero(confianza) && confianza >= 0 && confianza <= 100
-    ? (data.confianza_porcentaje != null || confianza > 1 ? confianza : confianza * 100) : null;
+    ? (data.confianza_porcentaje != null || confianza > 1 ? confianza : confianza * 100)
+    : null;
+
   const probabilidad = data.probabilidad ?? (clase === "positivo" ? positivo : negativo)
     ?? (confianzaPct == null ? null : confianzaPct / 100);
+
   if (!fraccion(probabilidad)) throw new Error("El servidor devolvió una probabilidad inválida.");
+  
   if (!fraccion(positivo)) positivo = clase === "positivo" ? probabilidad : 1 - probabilidad;
   if (!fraccion(negativo)) negativo = clase === "negativo" ? probabilidad : 1 - probabilidad;
 
-  const pasos = data.preprocesamiento ?? data.preprocessing ?? {};
-  const pesos = data.palabras_clave ?? pasos.pesos ?? data.word_weights ?? [];
+  // Latencia real enviada por FastAPI (tiempo_ms) o la calculada en el cliente
+  const latenciaMs = Number(data.tiempo_ms ?? tiempoMedido ?? 0);
+
   return {
-    clase, probabilidad, confianza_porcentaje: confianzaPct ?? probabilidad * 100,
-    probabilidades: { positivo, negativo },
-    modelo_usado: data.modelo_usado ?? data.model ?? "Modelo del servidor",
-    tiempo_ms: esNumero(data.tiempo_ms) ? data.tiempo_ms
-      : esNumero(data.response_time_ms) ? data.response_time_ms : tiempoMedido,
-    preprocesamiento: {
-      original: pasos.original ?? texto,
-      normalizado: pasos.normalizado ?? pasos.texto_normalizado ?? pasos.normalized_text ?? "",
-      tokens: lista(pasos.tokens),
-      reducidos: lista(pasos.reducidos ?? pasos.lemas ?? pasos.lemmas),
-      sin_stopwords: lista(pasos.sin_stopwords),
+    sentimiento: clase === "positivo" ? "Positivo" : "Negativo",
+    clase,
+    confianza: confianzaPct != null ? confianzaPct / 100 : probabilidad,
+    confianza_porcentaje: confianzaPct ?? (probabilidad * 100),
+    modelo: data.modelo_usado || data.modelo || "Regresión Logística (TF-IDF)",
+    latenciaMs,
+    probabilidades: {
+      positivo,
+      negativo,
     },
-    palabras_clave: Array.isArray(pesos) ? pesos.filter((p) => p && typeof p.palabra === "string" && esNumero(p.peso)) : [],
+    preprocesamiento: data.preprocesamiento || {
+      original: texto,
+      normalizado: texto.toLowerCase(),
+      tokens: [],
+      sin_stopwords: [],
+      reducidos: [],
+    },
+    palabras_clave: data.palabras_clave || [],
   };
 }
 
