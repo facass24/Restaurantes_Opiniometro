@@ -18,6 +18,7 @@ import joblib
 
 from src.config import MODEL_PATH, METRICS_PATH, BATCHES_DIR, API_VERSION
 from src.nlp.pipeline import PreprocesadorTexto, ResultadoPreprocesamiento
+from src.models.inferencia import clasificar_lote
 from api.schemas import (
     PrediccionResponse,
     ResultadoPreprocesamientoDTO,
@@ -629,38 +630,52 @@ class ServicioPrediccion:
         positivas = 0
         negativas = 0
 
-        # Clasificación individual de cada registro
-        for i, texto_raw in enumerate(textos_originales):
-            limpio = texto_raw.strip()
-            if not limpio:
-                # Fila sin texto
-                sent = "Positivo"
-                certeza = 50.0
-                p_pos = 0.50
-                p_neg = 0.50
-            else:
-                if self.es_modelo_real and self.pipeline is not None:
-                    try:
-                        probas = self.pipeline.predict_proba([limpio])[0]
-                        clases = [str(c).lower() for c in self.pipeline.classes_]
-                        idx_pos = clases.index("positivo") if "positivo" in clases else int(probas.argmax())
-                        idx_neg = 1 - idx_pos if len(clases) == 2 else 0
+        # Inferencia por lote: llamada vectorizada con clasificar_lote si el modelo está en memoria
+        df_preds = None
+        if self.es_modelo_real and self.pipeline is not None:
+            try:
+                df_preds = clasificar_lote(self.pipeline, textos_originales)
+                for i in range(len(df_preds)):
+                    row = df_preds.iloc[i]
+                    if pd.isna(row["sentimiento"]) or row["sentimiento"] is None:
+                        sent = "Positivo"
+                        certeza = 50.0
+                        p_pos = 0.50
+                        p_neg = 0.50
+                    else:
+                        sent = str(row["sentimiento"]).capitalize()
+                        c_val = float(row["certeza"])
+                        certeza = round(c_val * 100, 1) if c_val <= 1.0 else round(c_val, 1)
+                        p_pos = round(float(row["p_pos"]), 4)
+                        p_neg = round(float(row["p_neg"]), 4)
 
-                        p_pos = round(float(probas[idx_pos]), 4)
-                        p_neg = round(float(probas[idx_neg]), 4)
-                        if p_pos >= p_neg:
-                            sent = "Positivo"
-                            certeza = round(p_pos * 100, 1)
-                        else:
-                            sent = "Negativo"
-                            certeza = round(p_neg * 100, 1)
-                    except Exception:
-                        traza = self.preprocesador.paso_a_paso(limpio)
-                        clase_raw, prob, _ = self.modelo_heuristico.predict_proba(traza)
-                        sent = "Positivo" if clase_raw == "positivo" else "Negativo"
-                        certeza = round(prob * 100, 1)
-                        p_pos = round(prob, 4) if sent == "Positivo" else round(1.0 - prob, 4)
-                        p_neg = round(prob, 4) if sent == "Negativo" else round(1.0 - prob, 4)
+                    if sent == "Positivo":
+                        positivas += 1
+                    else:
+                        negativas += 1
+
+                    lista_sentimiento.append(sent)
+                    lista_certeza.append(certeza)
+                    lista_prob_pos.append(p_pos)
+                    lista_prob_neg.append(p_neg)
+            except Exception:
+                df_preds = None
+                lista_sentimiento.clear()
+                lista_certeza.clear()
+                lista_prob_pos.clear()
+                lista_prob_neg.clear()
+                positivas = 0
+                negativas = 0
+
+        if df_preds is None:
+            # Modelo heurístico de respaldo (contingencia sin modelo entrenado)
+            for i, texto_raw in enumerate(textos_originales):
+                limpio = texto_raw.strip()
+                if not limpio:
+                    sent = "Positivo"
+                    certeza = 50.0
+                    p_pos = 0.50
+                    p_neg = 0.50
                 else:
                     traza = self.preprocesador.paso_a_paso(limpio)
                     clase_raw, prob, _ = self.modelo_heuristico.predict_proba(traza)
@@ -669,16 +684,18 @@ class ServicioPrediccion:
                     p_pos = round(prob, 4) if sent == "Positivo" else round(1.0 - prob, 4)
                     p_neg = round(prob, 4) if sent == "Negativo" else round(1.0 - prob, 4)
 
-            if sent == "Positivo":
-                positivas += 1
-            else:
-                negativas += 1
+                if sent == "Positivo":
+                    positivas += 1
+                else:
+                    negativas += 1
 
-            lista_sentimiento.append(sent)
-            lista_certeza.append(certeza)
-            lista_prob_pos.append(p_pos)
-            lista_prob_neg.append(p_neg)
+                lista_sentimiento.append(sent)
+                lista_certeza.append(certeza)
+                lista_prob_pos.append(p_pos)
+                lista_prob_neg.append(p_neg)
 
+        # Construir resultados DTO para cada registro
+        for i, texto_raw in enumerate(textos_originales):
             sucursal_val = str(df.iloc[i][col_sucursal]) if col_sucursal and pd.notna(df.iloc[i][col_sucursal]) else None
             fecha_val = str(df.iloc[i][col_fecha]) if col_fecha and pd.notna(df.iloc[i][col_fecha]) else None
 
@@ -686,10 +703,10 @@ class ServicioPrediccion:
                 ReseñaItemProcesadaDTO(
                     indice=i + 1,
                     reseña_original=texto_raw[:120] + "..." if len(texto_raw) > 120 else texto_raw,
-                    sentimiento=sent,
-                    certeza=certeza,
-                    probabilidad_positiva=p_pos,
-                    probabilidad_negativa=p_neg,
+                    sentimiento=lista_sentimiento[i],
+                    certeza=lista_certeza[i],
+                    probabilidad_positiva=lista_prob_pos[i],
+                    probabilidad_negativa=lista_prob_neg[i],
                     sucursal=sucursal_val,
                     fecha=fecha_val,
                 )
